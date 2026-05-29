@@ -1,0 +1,116 @@
+{
+  "min_relevance": 4,
+  "github_queries": [
+    {
+      "label": "claude-code",
+      "topic_label": "claude-code",
+      "query": "topic:claude-code stars:>5"
+    },
+    {
+      "label": "codex",
+      "topic_label": "codex",
+      "query": "topic:codex stars:>5"
+    },
+    {
+      "label": "ai-coding-agent",
+      "topic_label": "ai-coding-agent",
+      "query": "topic:ai-coding-agent stars:>5"
+    },
+    {
+      "label": "mcp-server",
+      "topic_label": "mcp-server",
+      "query": "topic:mcp-server stars:>25"
+    },
+    {
+      "label": "openai-codex-name-desc",
+      "query": "openai codex in:name,description stars:>5"
+    },
+    {
+      "label": "codex-cli-name-desc",
+      "query": "codex cli in:name,description stars:>5"
+    },
+    {
+      "label": "claude-code-name-desc",
+      "query": "claude code in:name,description stars:>5"
+    },
+    {
+      "label": "agentic-coding-name-desc",
+      "query": "agentic coding in:name,description stars:>5"
+    },
+    {
+      "label": "opencode-name-desc",
+      "query": "opencode in:name,description stars:>5"
+    },
+    {
+      "label": "gemini-cli-name-desc",
+      "query": "gemini cli in:name,description stars:>10"
+    },
+    {
+      "label": "cursor-ai-agent",
+      "query": "cursor ai agent in:name,description stars:>20"
+    },
+    {
+      "label": "mcp-ai-tooling",
+      "query": "mcp ai coding in:name,description stars:>20"
+    }
+  ],
+  "hn_queries": [
+    "Codex",
+    "OpenAI Codex",
+    "Claude Code",
+    "AI coding agent",
+    "MCP server",
+    "Model Context Protocol",
+    "opencode",
+    "Gemini CLI",
+    "Cursor AI"
+  ],
+  "keywords": {
+    "priority": [
+      "codex",
+      "openai codex",
+      "claude code",
+      "claude-code",
+      "opencode",
+      "gemini cli",
+      "ai coding agent",
+      "agentic coding",
+      "cursor",
+      "windsurf"
+    ],
+    "adjacent": [
+      "agent",
+      "subagent",
+      "multi-agent",
+      "mcp",
+      "model context protocol",
+      "prompt",
+      "skills",
+      "commands",
+      "workflow",
+      "orchestration",
+      "automation",
+      "terminal",
+      "cli",
+      "vscode",
+      "editor",
+      "sandbox",
+      "browser",
+      "computer use",
+      "context",
+      "memory",
+      "token",
+      "usage"
+    ],
+    "noise": [
+      "awesome list",
+      "roadmap",
+      "leetcode",
+      "interview",
+      "course",
+      "bootcamp",
+      "paper list",
+      "collection of links"
+    ]
+  }
+}

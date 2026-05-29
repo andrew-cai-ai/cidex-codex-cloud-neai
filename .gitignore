@@ -1,0 +1,10 @@
+data/raw/
+data/seen_repos.json
+config/email.env
+reports/*.md
+reports/last_email.txt
+__pycache__/
+tests/__pycache__/
+.DS_Store
+
+.idea/
