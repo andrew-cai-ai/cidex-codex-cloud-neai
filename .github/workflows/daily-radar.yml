@@ -73,7 +73,7 @@ jobs:
             --require-email
 
       - name: Save radar state
-        if: always()
+        if: always() && hashFiles('data/seen_repos.json') != ''
         uses: actions/cache/save@v4
         with:
           path: data/seen_repos.json
