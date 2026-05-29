@@ -101,6 +101,101 @@
       "url": "https://www.sequoiacap.com/feed/"
     }
   ],
+  "job_sources": [
+    {
+      "label": "remoteok",
+      "type": "remoteok",
+      "url": "https://remoteok.com/api",
+      "limit": 80
+    },
+    {
+      "label": "yc-remote-engineering",
+      "type": "yc-jobs",
+      "url": "https://www.ycombinator.com/jobs?location=remote&role=eng",
+      "limit": 80
+    },
+    {
+      "label": "hnhiring-remote",
+      "type": "hnhiring",
+      "url": "https://hnhiring.com/search?locations=remote",
+      "limit": 120
+    },
+    {
+      "label": "hnhiring-kafka",
+      "type": "hnhiring",
+      "url": "https://hnhiring.com/search?locations=remote&technologies=kafka",
+      "limit": 60
+    },
+    {
+      "label": "hnhiring-java",
+      "type": "hnhiring",
+      "url": "https://hnhiring.com/search?locations=remote&technologies=java",
+      "limit": 60
+    }
+  ],
+  "candidate_profile": {
+    "target": "Andrew Cai - Senior Backend Engineer, streaming and real-time systems, Toronto or remote",
+    "strong_terms": [
+      "senior backend",
+      "staff backend",
+      "backend",
+      "backend engineer",
+      "data platform",
+      "platform",
+      "platform engineer",
+      "infrastructure engineer",
+      "sre",
+      "distributed systems",
+      "real-time",
+      "streaming",
+      "event-driven",
+      "kafka",
+      "flink",
+      "pulsar",
+      "java",
+      "aws",
+      "microservices",
+      "observability",
+      "low latency",
+      "high throughput"
+    ],
+    "ai_terms": [
+      "ai",
+      "llm",
+      "agent",
+      "inference",
+      "ml platform",
+      "ai infrastructure",
+      "rag",
+      "mcp"
+    ],
+    "remote_terms": [
+      "remote",
+      "canada",
+      "toronto",
+      "north america",
+      "americas",
+      "us; ca",
+      "utc-5",
+      "est",
+      "edt"
+    ],
+    "avoid_terms": [
+      "intern",
+      "junior",
+      "mobile",
+      "android",
+      "ios",
+      "frontend only",
+      "wordpress",
+      "php",
+      "customer support",
+      "sales",
+      "marketing",
+      "part-time"
+    ],
+    "min_salary_usd": 180000
+  },
   "keywords": {
     "opportunity": [
       "hiring",

@@ -4,6 +4,13 @@ import opportunity_radar
 
 
 CONFIG = {
+    "candidate_profile": {
+        "strong_terms": ["backend", "kafka", "flink", "distributed systems", "aws"],
+        "ai_terms": ["ai", "llm", "agent"],
+        "remote_terms": ["remote", "canada"],
+        "avoid_terms": ["junior", "intern"],
+        "min_salary_usd": 180000,
+    },
     "keywords": {
         "opportunity": ["hiring", "remote", "startup", "SaaS", "revenue", "Launch HN", "AI", "agent"],
         "high_intent": ["hiring", "remote", "founder", "Launch HN", "revenue"],
@@ -40,6 +47,26 @@ class OpportunityRadarTest(unittest.TestCase):
         )
 
         self.assertIn("job", opportunity_radar.classify(item, CONFIG))
+
+    def test_job_match_prefers_andrew_backend_streaming_profile(self):
+        item = opportunity_radar.Opportunity(
+            id="job",
+            title="Senior Backend Engineer - AI infrastructure",
+            url="https://example.com",
+            source="yc",
+            source_type="job-board",
+            summary="Remote Canada. Java backend, Kafka, Flink, AWS, distributed systems. Salary $180K - $240K.",
+        )
+
+        score, reasons, risks = opportunity_radar.candidate_job_match(item, CONFIG)
+
+        self.assertGreaterEqual(score, 90)
+        self.assertIn("kafka", reasons)
+        self.assertEqual(risks, [])
+
+    def test_salary_parser_does_not_turn_hourly_price_into_350k(self):
+        self.assertEqual(opportunity_radar.parse_salary_max_usd("$350 architecture audit"), 0)
+        self.assertEqual(opportunity_radar.parse_salary_max_usd("$180K - $240K"), 240000)
 
 
 if __name__ == "__main__":

@@ -94,6 +94,32 @@ class OpportunityDigestTest(unittest.TestCase):
 
         self.assertEqual(selected[0]["title"], "remote engineer")
 
+    def test_job_formatter_uses_match_reasons_and_risks(self):
+        item = {
+            "title": "Atomic - Backend Engineer",
+            "url": "https://example.com",
+            "source_type": "job-board",
+            "source": "yc-remote-engineering",
+            "tags": ["job"],
+            "score": 120,
+            "metrics": {
+                "company": "Atomic",
+                "role": "Backend Engineer",
+                "salary": "$150K - $200K",
+                "location": "Remote",
+                "job_match_score": 86,
+                "job_match_reasons": ["backend", "AI/LLM/agent 相关", "remote/Canada-friendly"],
+                "job_match_risks": [],
+                "source_name": "YC Jobs",
+            },
+        }
+
+        lines = run_opportunity_notify.format_job_candidate(item, 1)
+
+        self.assertIn("Atomic", lines[0])
+        self.assertTrue(any("backend" in line for line in lines))
+        self.assertTrue(any("YC Jobs" in line for line in lines))
+
 
 if __name__ == "__main__":
     unittest.main()

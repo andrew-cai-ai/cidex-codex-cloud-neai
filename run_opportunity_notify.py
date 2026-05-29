@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import argparse
 import os
+import re
 import sys
 from datetime import datetime
 from pathlib import Path
@@ -280,7 +281,8 @@ def summarize_trends(items: list[dict]) -> list[str]:
 
 
 def pick_research_items(items: list[dict], limit: int = 3) -> list[dict]:
-    return sorted(items, key=editorial_priority, reverse=True)[:limit]
+    research_items = [item for item in items if item.get("source_type") != "job-board"]
+    return sorted(research_items or items, key=editorial_priority, reverse=True)[:limit]
 
 
 def top_by_tag(items: list[dict], wanted: set[str], limit: int) -> list[dict]:
@@ -300,6 +302,18 @@ def top_by_tag(items: list[dict], wanted: set[str], limit: int) -> list[dict]:
 
 def is_actionable_job(item: dict) -> bool:
     text = item_text(item)
+    weak_offer_patterns = [
+        "i help teams",
+        "architecture audits",
+        "fractional",
+        "for hire",
+        "my resume",
+        "cal.com/",
+    ]
+    if any(pattern in text for pattern in weak_offer_patterns):
+        return False
+    if item.get("source_type") == "job-board":
+        return not any(re.search(rf"(?<![a-z0-9]){re.escape(pattern)}(?![a-z0-9])", text) for pattern in ("intern", "junior", "customer support"))
     strong_patterns = [
         "we're hiring",
         "we are hiring",
@@ -320,6 +334,80 @@ def is_actionable_job(item: dict) -> bool:
     if any(pattern in text for pattern in weak_discussion_patterns):
         return False
     return any(pattern in text for pattern in strong_patterns)
+
+
+def job_match_score(item: dict) -> float:
+    metrics = item.get("metrics") or {}
+    return float(metrics.get("job_match_score") or 0)
+
+
+def job_grade(item: dict, rank: int) -> str:
+    score = job_match_score(item)
+    risks = " ".join((item.get("metrics") or {}).get("job_match_risks") or [])
+    if "可能限制 US" in risks and score < 105:
+        return "B"
+    if score >= 95 or (rank == 1 and score >= 80):
+        return "A"
+    if score >= 70:
+        return "B+"
+    if score >= 50:
+        return "B"
+    return "C"
+
+
+def compact_salary_location(item: dict) -> str:
+    metrics = item.get("metrics") or {}
+    pieces: list[str] = []
+    salary = metrics.get("salary") or ""
+    salary_max = int(metrics.get("salary_max_detected") or metrics.get("salary_max") or 0)
+    if salary:
+        pieces.append(str(salary))
+    elif salary_max:
+        pieces.append(f"up to ${salary_max:,}")
+    location = metrics.get("location") or ""
+    if location:
+        pieces.append(str(location))
+    return " / ".join(pieces) or "薪资/地点未写清"
+
+
+def clean_job_role(item: dict) -> str:
+    metrics = item.get("metrics") or {}
+    role = str(metrics.get("role") or display_name(item))
+    if len(role) > 90 or role.lower().startswith("visa sponsorship"):
+        text = f"{item.get('title', '')} {item.get('summary', '')}"
+        match = re.search(
+            r"((?:senior|sr\.?|staff|principal|lead|backend|platform|infra|software)[^.|\n]{0,80}engineer[^.|\n]{0,80})",
+            text,
+            re.I,
+        )
+        if match:
+            role = match.group(1).strip()
+    return short(role, 90)
+
+
+def format_job_candidate(item: dict, rank: int) -> list[str]:
+    metrics = item.get("metrics") or {}
+    company = short(metrics.get("company") or display_name(item).split("|", 1)[0].split(" - ", 1)[0].strip(), 48)
+    role = clean_job_role(item)
+    reasons = metrics.get("job_match_reasons") or []
+    risks = metrics.get("job_match_risks") or []
+    source = metrics.get("source_name") or item.get("source") or "job source"
+    reason_text = "、".join(reasons[:4]) if reasons else "后端/AI/remote 关键词匹配，需要人工确认"
+    risk_text = "；".join(risks[:3]) if risks else "暂无明显硬伤"
+    return [
+        f"{rank}. {company} — {role} ({job_grade(item, rank)})",
+        f"   匹配: {reason_text}",
+        f"   薪资/地点: {compact_salary_location(item)}",
+        f"   风险: {risk_text}",
+        f"   来源: {source} → {item.get('url', '')}",
+    ]
+
+
+def pick_job_items(items: list[dict], limit: int = 3) -> list[dict]:
+    job_items = [item for item in top_by_tag(items, {"job"}, len(items)) if is_actionable_job(item)]
+    job_items = [item for item in job_items if job_match_score(item) >= 45]
+    job_items.sort(key=lambda item: (job_match_score(item), float(item.get("score") or 0)), reverse=True)
+    return job_items[:limit]
 
 
 def build_email_body(test_results: list[StepResult], radar_result: StepResult) -> str:
@@ -370,14 +458,14 @@ def build_email_body(test_results: list[StepResult], radar_result: StepResult) -
                 f"{idx}. {display_name(item)} — {grade} · {short(one_liner, 72)} → {item.get('url', '')}"
             )
 
-    job_items = top_by_tag(items, {"job"}, len(items))
-    explicit_jobs = [item for item in job_items if is_actionable_job(item)]
-    body.extend(["", "工作机会:"])
+    explicit_jobs = pick_job_items(items, 3)
+    body.extend(["", "工作机会（按 Andrew 简历匹配）:"])
+    body.append("来源: YC Jobs / HNHIRING / RemoteOK / HN / Reddit。筛选目标: Senior Backend + Kafka/Flink + distributed systems + AWS + AI infra + remote/high comp。")
     if explicit_jobs:
-        for item in explicit_jobs[:2]:
-            body.append(f"- {short(item['title'], 92)} → {item['url']}")
+        for idx, item in enumerate(explicit_jobs, 1):
+            body.extend(format_job_candidate(item, idx))
     else:
-        body.append("今天没发现特别值得投递的 AI 岗位；只有招聘市场/remote work 的宏观讨论。")
+        body.append("今天没有 A/B 级匹配岗位；不是“没有岗位”，而是没有明显适合你这份简历、薪资和 remote 条件的高质量目标。")
 
     trends = summarize_trends(items)
     body.extend(["", "今日信号分布 (来自本次抓取):"])
@@ -389,16 +477,17 @@ def build_email_body(test_results: list[StepResult], radar_result: StepResult) -
 
     run_url = os.environ.get("GITHUB_RUN_URL")
     report_pointer = run_url or str(REPORT_PATH)
-    body.extend(
-        [
-            "",
-            "今天只做一件事:",
-            f"打开 {best_name}。",
-            "回答: 客户是谁？怎么赚钱？你会怎么改？",
-            "",
-            f"完整原始报告 → {report_pointer}",
-        ]
-    )
+    body.extend(["", "今天只做一件事:"])
+    if explicit_jobs:
+        top_job = explicit_jobs[0]
+        top_metrics = top_job.get("metrics") or {}
+        top_job_name = top_metrics.get("company") or display_name(top_job)
+        body.append(f"先打开工作机会 #1: {short(top_job_name, 60)}。")
+        body.append("判断: 加拿大 remote 能不能投？薪资是否够？如果够，今天就发第一封定制申请。")
+    else:
+        body.append(f"打开 {best_name}。")
+        body.append("回答: 客户是谁？怎么赚钱？你会怎么改？")
+    body.extend(["", f"完整原始报告 → {report_pointer}"])
     return "\n".join(body).strip() + "\n"
 
 

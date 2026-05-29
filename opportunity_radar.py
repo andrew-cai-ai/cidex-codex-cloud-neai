@@ -21,7 +21,7 @@ from html.parser import HTMLParser
 from pathlib import Path
 from typing import Any
 from urllib.error import HTTPError, URLError
-from urllib.parse import urlencode
+from urllib.parse import urlencode, urljoin
 from urllib.request import Request, urlopen
 from xml.etree import ElementTree as ET
 
@@ -329,9 +329,269 @@ def parse_github_trending(url: str, label: str, limit: int) -> list[Opportunity]
     return items
 
 
+def parse_remoteok(url: str, label: str, limit: int) -> list[Opportunity]:
+    payload = http_json(url)
+    items: list[Opportunity] = []
+    for row in payload:
+        if not isinstance(row, dict) or not row.get("position"):
+            continue
+        tags = row.get("tags") or []
+        salary_min = int(row.get("salary_min") or 0)
+        salary_max = int(row.get("salary_max") or 0)
+        summary_parts = [
+            strip_html(row.get("description") or ""),
+            f"Tags: {', '.join(tags[:12])}",
+            f"Location: {row.get('location') or 'Remote'}",
+        ]
+        if salary_min or salary_max:
+            summary_parts.append(f"Salary: ${salary_min:,}-${salary_max:,}")
+        items.append(
+            Opportunity(
+                id=f"remoteok:{row.get('id') or row.get('slug')}",
+                title=f"{row.get('company')} - {row.get('position')}",
+                url=row.get("url") or row.get("apply_url") or "https://remoteok.com/remote-dev-jobs",
+                source=label,
+                source_type="job-board",
+                published_at=row.get("date"),
+                summary=" ".join(summary_parts),
+                metrics={
+                    "company": row.get("company") or "",
+                    "role": row.get("position") or "",
+                    "location": row.get("location") or "Remote",
+                    "salary_min": salary_min,
+                    "salary_max": salary_max,
+                    "source_name": "RemoteOK",
+                },
+            )
+        )
+        if len(items) >= limit:
+            break
+    return items
+
+
+def extract_json_array_after(text: str, marker: str) -> list[Any]:
+    decoded = html.unescape(text)
+    marker_idx = decoded.find(marker)
+    if marker_idx < 0:
+        return []
+    start = decoded.find("[", marker_idx)
+    if start < 0:
+        return []
+    depth = 0
+    in_string = False
+    escape = False
+    for idx, char in enumerate(decoded[start:], start):
+        if in_string:
+            if escape:
+                escape = False
+            elif char == "\\":
+                escape = True
+            elif char == '"':
+                in_string = False
+            continue
+        if char == '"':
+            in_string = True
+        elif char == "[":
+            depth += 1
+        elif char == "]":
+            depth -= 1
+            if depth == 0:
+                try:
+                    return json.loads(decoded[start : idx + 1])
+                except json.JSONDecodeError:
+                    return []
+    return []
+
+
+def parse_yc_jobs(url: str, label: str, limit: int) -> list[Opportunity]:
+    text = http_text(url, "text/html,*/*")
+    jobs = extract_json_array_after(text, '"jobPostings":[')
+    items: list[Opportunity] = []
+    for job in jobs[:limit]:
+        if not isinstance(job, dict):
+            continue
+        company = job.get("companyName") or "YC company"
+        title = job.get("title") or "Engineering role"
+        location = job.get("location") or ""
+        salary = job.get("salaryRange") or ""
+        equity = job.get("equityRange") or ""
+        one_liner = job.get("companyOneLiner") or ""
+        skills = ", ".join(job.get("skills") or [])
+        summary = " ".join(
+            part
+            for part in [
+                one_liner,
+                f"Role: {job.get('roleSpecificType') or job.get('prettyRole') or ''}",
+                f"Location: {location}",
+                f"Salary: {salary}" if salary else "",
+                f"Equity: {equity}" if equity else "",
+                f"Experience: {job.get('minExperience') or ''}",
+                f"Visa: {job.get('visa') or ''}",
+                f"Skills: {skills}" if skills else "",
+                f"Last active: {job.get('lastActive') or ''}",
+            ]
+            if part
+        )
+        items.append(
+            Opportunity(
+                id=f"yc:{job.get('id')}",
+                title=f"{company} - {title}",
+                url=urljoin("https://www.ycombinator.com", job.get("url") or ""),
+                source=label,
+                source_type="job-board",
+                summary=summary,
+                metrics={
+                    "company": company,
+                    "role": title,
+                    "location": location,
+                    "salary": salary,
+                    "equity": equity,
+                    "last_active": job.get("lastActive") or "",
+                    "source_name": "YC Jobs",
+                },
+            )
+        )
+    return items
+
+
+def parse_hnhiring(url: str, label: str, limit: int) -> list[Opportunity]:
+    text = http_text(url, "text/html,*/*")
+    items: list[Opportunity] = []
+    for match in re.finditer(r'<li class="job[^"]*">(?P<li>.*?)</li>', text, re.DOTALL):
+        li_html = match.group("li")
+        date_match = re.search(r'<span class="gray right type-info">([^<]+)</span>', li_html)
+        body_match = re.search(r'<div class="body">(?P<body>.*?)</div>', li_html, re.DOTALL)
+        if not body_match:
+            continue
+        body_html = body_match.group("body")
+        body_text = strip_html(body_html)
+        if not body_text:
+            continue
+        parts = [part.strip() for part in re.split(r"\s+\|\s+", body_text) if part.strip()]
+        company = re.sub(r"\s*\(\s*https?://[^)]+\)\s*", "", parts[0]).strip() if parts else ""
+        role = next((part for part in parts[1:] if re.search(r"engineer|backend|platform|sre|infra", part, re.I)), "")
+        if not role or len(role) > 120:
+            role_match = re.search(
+                r"((?:senior|sr\.?|staff|principal|lead|backend|platform|infra|software)[^.|\n]{0,80}engineer[^.|\n]{0,80})",
+                body_text,
+                re.I,
+            )
+            role = role_match.group(1).strip() if role_match else role
+        href_match = re.search(r'href="([^"]+)"', body_html)
+        target_url = html.unescape(href_match.group(1)) if href_match else url
+        title = truncate(body_text, 140)
+        items.append(
+            Opportunity(
+                id=f"hnhiring:{item_id(label, target_url, title)}",
+                title=title,
+                url=target_url,
+                source=label,
+                source_type="job-board",
+                published_at=date_match.group(1) if date_match else None,
+                summary=body_text,
+                metrics={"company": company, "role": role or title, "source_name": "HNHIRING"},
+            )
+        )
+        if len(items) >= limit:
+            break
+    return items
+
+
+def collect_job_source(source: dict[str, Any]) -> list[Opportunity]:
+    source_type = source.get("type")
+    limit = int(source.get("limit") or 50)
+    if source_type == "remoteok":
+        return parse_remoteok(source["url"], source["label"], limit)
+    if source_type == "yc-jobs":
+        return parse_yc_jobs(source["url"], source["label"], limit)
+    if source_type == "hnhiring":
+        return parse_hnhiring(source["url"], source["label"], limit)
+    raise RuntimeError(f"unsupported job source type: {source_type}")
+
+
+def parse_salary_max_usd(text: str, metrics: dict[str, Any] | None = None) -> int:
+    metrics = metrics or {}
+    explicit = int(metrics.get("salary_max") or 0)
+    if explicit:
+        return explicit
+    salary_text = " ".join(
+        str(value)
+        for value in [
+            text,
+            metrics.get("salary") or "",
+        ]
+    )
+    values: list[int] = []
+    for match in re.finditer(r"\$ ?(\d{2,3}(?:,\d{3})?) ?([kK])?", salary_text):
+        raw_number = match.group(1).replace(",", "")
+        number = int(raw_number)
+        if match.group(2):
+            number *= 1000
+        elif number < 1000:
+            continue
+        values.append(number)
+    return max(values or [0])
+
+
+def term_hit(text: str, term: str) -> bool:
+    term = term.lower()
+    if len(term) <= 3 or re.fullmatch(r"[a-z0-9#+.-]+", term):
+        return re.search(rf"(?<![a-z0-9]){re.escape(term)}(?![a-z0-9])", text) is not None
+    return term in text
+
+
+def candidate_job_match(item: Opportunity, config: dict[str, Any]) -> tuple[int, list[str], list[str]]:
+    profile = config.get("candidate_profile", {})
+    text = f"{item.title} {item.summary} {item.source} {' '.join(item.tags)}".lower()
+    score = 0
+    reasons: list[str] = []
+    risks: list[str] = []
+
+    for term in profile.get("strong_terms", []):
+        if term_hit(text, term):
+            score += 9
+            if len(reasons) < 4:
+                reasons.append(term)
+    if any(term_hit(text, term) for term in profile.get("ai_terms", [])):
+        score += 22
+        reasons.append("AI/LLM/agent 相关")
+    if any(term_hit(text, term) for term in profile.get("remote_terms", [])):
+        score += 18
+        reasons.append("remote/Canada-friendly")
+
+    salary_max = parse_salary_max_usd(text, item.metrics)
+    item.metrics["salary_max_detected"] = salary_max
+    if salary_max >= int(profile.get("min_salary_usd") or 180000):
+        score += 14
+        reasons.append(f"薪资上限约 ${salary_max:,}+")
+    elif salary_max and salary_max < 150000:
+        score -= 12
+        risks.append(f"薪资可能偏低: ${salary_max:,}")
+
+    for term in profile.get("avoid_terms", []):
+        if term_hit(text, term):
+            score -= 20
+            risks.append(term)
+    if "us only" in text or "remote (us)" in text or "us citizen" in text or "remote us" in text:
+        score -= 36
+        risks.append("可能限制 US")
+    if "europe only" in text or "utc+1" in text or "utc+2" in text:
+        score -= 10
+        risks.append("时区/地区可能不适合 Toronto")
+    if "contract" in text or "part-time" in text:
+        score -= 10
+        risks.append("可能不是全职高薪岗位")
+
+    if "job" in item.tags or item.source_type == "job-board":
+        score += 20
+    return max(0, score), reasons[:5], risks[:4]
+
+
 def classify(item: Opportunity, config: dict[str, Any]) -> list[str]:
     text = f"{item.title} {item.summary} {item.source}".lower()
     tags = []
+    if item.source_type == "job-board":
+        tags.append("job")
     if item.source_type == "product-hunt":
         tags.append("product")
     if item.source_type == "github-trending":
@@ -415,6 +675,11 @@ def score_item(item: Opportunity, config: dict[str, Any], seen: set[str], now: d
     item.why = why
     item.action = action
     item.is_new = item.id not in seen
+    job_match_score, job_reasons, job_risks = candidate_job_match(item, config)
+    if job_match_score:
+        item.metrics["job_match_score"] = job_match_score
+        item.metrics["job_match_reasons"] = job_reasons
+        item.metrics["job_match_risks"] = job_risks
 
     points = int(item.metrics.get("points") or 0)
     comments = int(item.metrics.get("comments") or 0)
@@ -430,6 +695,8 @@ def score_item(item: Opportunity, config: dict[str, Any], seen: set[str], now: d
         score += 8
     if item.source_type in {"newsletter", "yc"}:
         score += 4
+    if item.source_type == "job-board":
+        score += 20 + min(job_match_score, 120)
     if item.source_type == "hacker-news" and re.search(r"^show hn:|^launch hn:", item.title.lower()):
         score += 12
     if item.source_type == "reddit" and re.search(r"mrr|revenue|customers|validate|technical founder", text):
@@ -495,6 +762,13 @@ def collect(config: dict[str, Any], since: datetime, args: argparse.Namespace) -
             items.extend(parse_github_trending(trending["url"], trending["label"], args.github_limit))
         except Exception as exc:
             warnings.append(f"GitHub Trending failed [{trending['label']}]: {exc}")
+        time.sleep(0.2)
+
+    for source in config.get("job_sources", []):
+        try:
+            items.extend(collect_job_source(source))
+        except Exception as exc:
+            warnings.append(f"Job source failed [{source.get('label', 'unknown')}]: {exc}")
         time.sleep(0.2)
 
     return items, warnings
