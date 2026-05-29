@@ -1,12 +1,7 @@
-import json
 import unittest
-from pathlib import Path
 from unittest.mock import patch
 
 import run_and_notify
-
-
-ROOT = Path(__file__).resolve().parents[1]
 
 
 SAMPLE_RAW = {
@@ -95,9 +90,11 @@ class EmailDigestTest(unittest.TestCase):
     def test_concise_digest_skips_top_three_in_rest(self):
         primary, rest, new_preview, hn_items, extra_new = run_and_notify.concise_digest_from_raw(SAMPLE_RAW)
 
-        self.assertTrue(primary[0].startswith("affaan-m/ECC — The agent harness"))
-        self.assertTrue(primary[1].startswith("→ https://github.com/affaan-m/ECC"))
-        self.assertTrue(any("harness" in line for line in primary))
+        self.assertTrue(primary[0].startswith("1. affaan-m/ECC"))
+        self.assertTrue(any("是什么:" in line for line in primary))
+        self.assertTrue(any("为什么看:" in line for line in primary))
+        self.assertTrue(any("今天动作:" in line for line in primary))
+        self.assertTrue(any("链接: https://github.com/affaan-m/ECC" in line for line in primary))
         self.assertEqual(len(rest), 4)
         self.assertIn("nexu-io/open-design", rest[0])
         for name in ("affaan-m/ECC", "Lum1104/Understand-Anything", "safishamsi/graphify"):
@@ -116,10 +113,13 @@ class EmailDigestTest(unittest.TestCase):
             )
 
         self.assertIn("AI OSS Radar ·", body)
-        self.assertIn("今日主推:", body)
+        self.assertIn("怎么读:", body)
+        self.assertIn("今日要看:", body)
+        self.assertIn("是什么:", body)
+        self.assertIn("为什么看:", body)
         self.assertNotIn("Top 10 候选", body)
         self.assertNotIn("今天优先看这 3 个", body)
-        self.assertLess(len(body.splitlines()), 30)
+        self.assertLess(len(body.splitlines()), 50)
 
     def test_format_tags_limits_count(self):
         self.assertEqual(run_and_notify.format_tags(["a", "b", "c"], limit=2), "a, b")

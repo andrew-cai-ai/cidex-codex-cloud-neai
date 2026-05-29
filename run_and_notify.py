@@ -19,10 +19,8 @@ import subprocess
 import sys
 from dataclasses import dataclass
 from datetime import datetime
-from email.message import EmailMessage
 from pathlib import Path
-
-import ai_radar
+from email.message import EmailMessage
 
 
 ROOT = Path(__file__).resolve().parent
@@ -196,6 +194,71 @@ def format_tags(tags: list[str], limit: int = 2) -> str:
     return ", ".join(tags[:limit])
 
 
+def explain_project(full_name: str, tags: list[str], description: str) -> tuple[str, str, str]:
+    desc = (description or "").lower()
+    tag_set = set(tags)
+
+    if full_name == "affaan-m/ECC" or "harness" in desc:
+        return (
+            "一套给 Codex/Claude Code 用的 agent 工作流脚手架，重点是 skills、memory、security、research-first。",
+            "它可能不是直接拿来当产品用，而是值得偷师它怎么把 AI coding 的流程标准化。",
+            "打开 README，只看 skills / commands / memory 三块，抽 3 个模板放进你的 Codex 工作流。",
+        )
+    if full_name in {"Lum1104/Understand-Anything", "safishamsi/graphify"} or "knowledge graph" in desc or "interactive graph" in desc:
+        return (
+            "把代码库变成可搜索、可提问、可视化的知识图谱，帮 AI 更快理解陌生项目。",
+            "你经常要研究别人项目，这类工具能减少读代码和建立上下文的时间。",
+            "拿一个你最近想复用的 repo 试跑，看它生成的图谱能不能让 Codex 更快定位关键模块。",
+        )
+    if full_name == "NousResearch/hermes-agent":
+        return (
+            "一个偏长期成长/记忆/工具使用的开源 agent 项目，重点不是单次补全，而是 agent 怎样持续积累能力。",
+            "如果你想把 Codex 从一次性助手变成长期工作伙伴，这类项目的 memory 和 tool 设计值得看。",
+            "先看 agent loop、memory、tool registry 三块，判断哪些能搬进你的自动化系统。",
+        )
+    if "gstack" in full_name.lower():
+        return (
+            "一套别人已经整理好的 Claude Code 高级使用配置，包含 CEO、设计、工程、QA 等角色工具。",
+            "它的价值是工作流设计，不是代码本身；适合拿来改造成你的个人 AI 团队模板。",
+            "只看角色分工和命令入口，挑 2 个角色迁移到 Codex。",
+        )
+    if "design" in desc or "prototype" in desc:
+        return (
+            "本地优先的 AI 设计/原型工具，偏 UI、设计系统、产品 demo 生成。",
+            "如果你要快速验证产品形态，它可能比从零写前端更省时间。",
+            "看它的 design systems 和 skills 目录，找能直接复用到你产品原型里的模板。",
+        )
+    if "token" in desc or "proxy" in desc or "observability" in tag_set:
+        return (
+            "AI coding 的 token/成本/命令代理工具，目标是少花 token 或看清会话成本。",
+            "当你每天大量用 Codex/Claude，成本和上下文浪费会变成真问题。",
+            "跑它的 demo，记录一次真实任务能省多少 token 或给出多少可观测信息。",
+        )
+    if "opencode" in full_name.lower() or "coding-agent" in tag_set:
+        return (
+            "一个开源 AI coding agent，可以对照 Codex 看 agent loop、工具调用和 CLI 体验。",
+            "你不一定要换工具，但可以学习它怎么设计开源 coding agent 的产品体验。",
+            "看它的 tool calling、权限、上下文管理实现，记下 3 个可借鉴点。",
+        )
+    if "mcp" in tag_set:
+        return (
+            "一个 MCP/工具接入相关项目，用来把外部工具、数据或软件接进 AI agent。",
+            "MCP 是让 Codex/Claude 变强的连接层，好的 MCP 项目可以直接扩展你的工作流。",
+            "先看它暴露了哪些 tool，再判断能否接进你的日常自动化。",
+        )
+    if "skills-prompts" in tag_set:
+        return (
+            "一组 prompt、skills 或 commands 模板，不一定是完整 app。",
+            "这种项目最容易被你直接复制改造，投入小、见效快。",
+            "挑最像你日常任务的 1-2 个 skill，改成自己的中文/英文模板。",
+        )
+    return (
+        "一个 AI 开发工具相关开源项目，雷达因为热度、更新和关键词相关性把它捞出来。",
+        "先不要假设它一定有用；它只是今天值得快速扫一眼的候选。",
+        "用 10 分钟看 README、license、demo，如果不能立刻复用就跳过。",
+    )
+
+
 def concise_digest_from_raw(raw: dict | None) -> tuple[list[str], list[str], list[str], list[str], int]:
     """Return primary_pick lines, rest_candidates, new_preview, hn_items, extra_new_count."""
     if not raw:
@@ -209,27 +272,31 @@ def concise_digest_from_raw(raw: dict | None) -> tuple[list[str], list[str], lis
     hn_items: list[str] = []
     new_items_all: list[str] = []
 
-    if scores:
-        top = scores[0]
-        repo = repos.get(top["full_name"], {})
-        url = repo.get("html_url") or f"https://github.com/{top['full_name']}"
-        hook = truncate(repo.get("description") or "", 72)
-        move = truncate(
-            ai_radar.leverage_note(top.get("tags") or [], "", repo.get("description") or ""),
-            88,
+    for idx, item in enumerate(scores[:3], 1):
+        repo = repos.get(item["full_name"], {})
+        full_name = item["full_name"]
+        url = repo.get("html_url") or f"https://github.com/{full_name}"
+        description = repo.get("description") or ""
+        what, why, action = explain_project(full_name, item.get("tags") or [], description)
+        primary_pick.extend(
+            [
+                f"{idx}. {full_name}",
+                f"   是什么: {what}",
+                f"   为什么看: {why}",
+                f"   今天动作: {action}",
+                f"   链接: {url}",
+            ]
         )
-        primary_pick = [
-            f"{top['full_name']} — {hook}",
-            f"→ {url}",
-            f"动作: {move}",
-        ]
+        if idx != min(3, len(scores)):
+            primary_pick.append("")
 
     for idx, item in enumerate(scores[3:7], 4):
         repo = repos.get(item["full_name"], {})
         stars = int(repo.get("stargazers_count") or 0)
         tags = format_tags(item.get("tags") or [])
-        desc = truncate(repo.get("description") or "", 56)
-        rest_candidates.append(f"{idx}. {item['full_name']} — {stars:,}★, {tags} · {desc}")
+        description = repo.get("description") or ""
+        what, _, _ = explain_project(item["full_name"], item.get("tags") or [], description)
+        rest_candidates.append(f"{idx}. {item['full_name']} — {stars:,}★, {tags} · {truncate(what, 68)}")
 
     for item in scores:
         if not item.get("new"):
@@ -261,13 +328,18 @@ def build_email_body(test_results: list[StepResult], radar_result: StepResult, r
     all_ok = all(result.ok for result in test_results + [radar_result])
     status_label = "OK" if all_ok else "ATTENTION"
 
-    body = [f"AI OSS Radar · {now} · {status_label}", ""]
+    body = [
+        f"AI OSS Radar · {now} · {status_label}",
+        "",
+        "怎么读: 这不是新闻列表，是每天帮你找“别人已经造好的 AI coding 轮子”。重点看: 它是什么、为什么值得偷师、今天能拿走什么。",
+        "",
+    ]
 
     if primary_pick:
-        body.append("今日主推:")
+        body.append("今日要看:")
         body.extend(primary_pick)
     else:
-        body.append("今日主推: 暂无高优先级项目。")
+        body.append("今日要看: 暂无高优先级项目。")
 
     if rest_candidates:
         body.extend(["", "其余候选 (#4–#7):"])
@@ -294,7 +366,7 @@ def build_email_body(test_results: list[StepResult], radar_result: StepResult, r
     body.extend(["", f"完整 Top 25 + 表格 → {report_pointer}", ""])
     if run_url:
         body.append("云端产物: 打开上面的 Actions run，在 Artifacts 下载 radar-reports。")
-    body.append("今天只做一件事: clone 主推 repo，只看 skills / commands / memory 三块；其余留到周末扫报告。")
+    body.append("今天只做一件事: 不要全看。只 clone 第 1 个，确认有没有能直接搬进你工作流的 skills / commands / memory。")
     return "\n".join(body)
 
 
