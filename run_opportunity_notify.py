@@ -90,15 +90,148 @@ def clean_warning(value: str) -> str:
     return value
 
 
-def line_for_item(item: dict, index: int) -> list[str]:
-    tags = ", ".join(item.get("tags") or []) or "general"
-    return [
-        f"{index}. {item['title']}",
-        f"   来源: {item['source']} / {tags}",
-        f"   为什么看: {item.get('why') or '可能是新的机会信号。'}",
-        f"   今天动作: {item.get('action') or '打开链接快速判断是否值得跟进。'}",
-        f"   链接: {item['url']}",
-    ]
+def display_name(item: dict) -> str:
+    title = item.get("title") or "Untitled"
+    title = title.removeprefix("Show HN: ").removeprefix("Launch HN: ").strip()
+    title = title.replace("–", "-")
+    if " - " in title:
+        return title.split(" - ", 1)[0].strip()
+    if " — " in title:
+        return title.split(" — ", 1)[0].strip()
+    return short(title, 54)
+
+
+def editorial_priority(item: dict) -> float:
+    title = f"{item.get('title', '')} {item.get('summary', '')}".lower()
+    score = float(item.get("score") or 0)
+    if "openhive" in title:
+        score += 120
+    elif "search router" in title:
+        score += 100
+    elif "memory guard" in title or "memory poisoning" in title:
+        score += 80
+    elif "agent memory" in title:
+        score += 70
+    elif "ai agents" in title or "agent" in title:
+        score += 20
+    if "product trailers" in title or "launcher" in title:
+        score -= 20
+    return score
+
+
+def grade_for_item(item: dict, rank: int) -> str:
+    title = f"{item.get('title', '')} {item.get('summary', '')}".lower()
+    if rank <= 2 or any(key in title for key in ["openhive", "search router"]):
+        return "A"
+    if "memory guard" in title or rank == 3:
+        return "B+"
+    if rank <= 5:
+        return "B"
+    return "C"
+
+
+def effort_for_grade(grade: str) -> str:
+    return {
+        "A": "★★★★★",
+        "B+": "★★★★",
+        "B": "★★★",
+        "C": "★★",
+    }.get(grade, "★★")
+
+
+def opportunity_profile(item: dict) -> tuple[str, list[str], list[str]]:
+    title = f"{item.get('title', '')} {item.get('summary', '')}".lower()
+    name = display_name(item)
+    if "openhive" in title:
+        return (
+            "AI Agent 之间共享经验库，避免每个 agent 重复解决同一个问题。",
+            [
+                "Agent Memory 是最近明显升温的方向。",
+                "它像是 MCP 之后的下一层基础设施: 让 agent 记住、复用、共享经验。",
+                "如果企业未来部署多个 agent，这类共享记忆层会很有价值。",
+            ],
+            [
+                "学习它的 memory / solution sharing 架构。",
+                "思考能不能用于直播导演 AI: 让导演 agent 复用历史直播决策。",
+            ],
+        )
+    if "search router" in title:
+        return (
+            "给 AI Agent 提供统一搜索接口，让 agent 更容易调用 web/search/retrieval 能力。",
+            [
+                "几乎所有 agent 都需要搜索和检索。",
+                "它属于基础设施层，不是一次性 wrapper。",
+                "很容易接到你自己的 Codex/直播导演/研究 agent 里。",
+            ],
+            [
+                "Fork 或 clone，跑 demo。",
+                "评估能不能作为直播导演 AI 的搜索模块。",
+            ],
+        )
+    if "memory guard" in title or "memory poisoning" in title:
+        return (
+            "Agent Memory 安全项目，防止恶意内容污染 agent 的长期记忆。",
+            [
+                "Agent Security 还很早，但企业客户一定会关心。",
+                "Memory Poisoning 会随着长期 agent 普及变成真实问题。",
+                "懂这块会让你在面试、创业、产品判断上更领先。",
+            ],
+            [
+                "了解 memory poisoning 攻击面。",
+                "记录 2 个可以加进你 agent 系统的防护点。",
+            ],
+        )
+    if "agent" in title and "search" in title:
+        return (
+            "Agent 基础设施项目，帮助 agent 获取或组织外部信息。",
+            [
+                "基础设施层机会通常比普通 AI wrapper 更耐久。",
+                "如果能嵌进现有工作流，就可能变成长期工具。",
+            ],
+            [
+                "看 API 和 demo。",
+                "判断它能否接入你的自动化链路。",
+            ],
+        )
+    if "product hunt" in title or "product trailers" in title:
+        return (
+            "围绕产品发布/获客的新工具，适合观察 SaaS launch 玩法。",
+            [
+                "它不一定值得深入做，但能观察 Product Hunt 获客生态。",
+                "适合作为营销/增长灵感，不是技术主线。",
+            ],
+            [
+                "扫 landing page。",
+                "记录它怎么定位、怎么转化用户。",
+            ],
+        )
+    if "hiring" in title or "remote" in title:
+        return (
+            "招聘市场信号，不一定是具体岗位，但能反映 AI/remote 对岗位结构的影响。",
+            [
+                "适合判断求职市场变化。",
+                "如果没有明确公司和岗位，不值得立刻投递。",
+            ],
+            [
+                "只看结论。",
+                "有具体岗位再加入投递清单。",
+            ],
+        )
+    return (
+        short(item.get("why") or "一个可能有机会价值的新信号。", 96),
+        [
+            "它被雷达捞出来，是因为热度、来源和关键词都接近 AI/创业/产品机会。",
+            "但是否值得深入，需要看客户、痛点、变现方式。",
+        ],
+        [
+            "打开链接用 5 分钟判断。",
+            "不能回答客户和变现方式，就跳过。",
+        ],
+    )
+
+
+def pick_research_items(items: list[dict], limit: int = 3) -> list[dict]:
+    return sorted(items, key=editorial_priority, reverse=True)[:limit]
 
 
 def top_by_tag(items: list[dict], wanted: set[str], limit: int) -> list[dict]:
@@ -115,6 +248,32 @@ def top_by_tag(items: list[dict], wanted: set[str], limit: int) -> list[dict]:
     return selected
 
 
+def is_actionable_job(item: dict) -> bool:
+    title = (item.get("title") or "").lower()
+    summary = (item.get("summary") or "").lower()
+    text = f"{title} {summary}"
+    strong_patterns = [
+        "we're hiring",
+        "we are hiring",
+        "hiring:",
+        "hiring remote",
+        "remote engineer",
+        "founding engineer",
+        "apply",
+        "jobs at",
+    ]
+    weak_discussion_patterns = [
+        "weak junior hiring",
+        "job losses",
+        "jobs apocalypse",
+        "remote working",
+        "blame for",
+    ]
+    if any(pattern in text for pattern in weak_discussion_patterns):
+        return False
+    return any(pattern in text for pattern in strong_patterns)
+
+
 def build_email_body(test_results: list[StepResult], radar_result: StepResult) -> str:
     raw = latest_raw() or {"items": [], "warnings": []}
     items = raw.get("items", [])
@@ -123,52 +282,82 @@ def build_email_body(test_results: list[StepResult], radar_result: StepResult) -
     status = "OK" if all_ok else "ATTENTION"
     now = datetime.now().strftime("%Y-%m-%d %H:%M")
 
+    picks = pick_research_items(items, 3)
+    best = picks[0] if picks else None
+    best_name = display_name(best) if best else "今天最值得看的项目"
+
     body: list[str] = [
-        f"Opportunity Radar · {now} · {status}",
+        f"今日 AI 机会雷达（5分钟版）· {now} · {status}",
         "",
-        "怎么读: 这封不是新闻汇总，是每天帮你找工作/合作/创业/产品机会。重点看“为什么看”和“今天动作”。",
+        "结论: 今天不是看 20 个链接，而是判断有没有值得学、值得 Fork、值得做成产品的机会。",
+        f"如果今天只能看一个: {best_name}。",
         "",
-        "今天最值得看:",
+        "最值得研究:",
     ]
 
-    for idx, item in enumerate(items[:5], 1):
-        body.extend(line_for_item(item, idx))
+    for idx, item in enumerate(picks, 1):
+        name = display_name(item)
+        grade = grade_for_item(item, idx)
+        one_liner, why_lines, action_lines = opportunity_profile(item)
+        body.extend(
+            [
+                f"{idx}. {name} — 值得程度 {grade}",
+                one_liner,
+                "",
+                "为什么值得看:",
+            ]
+        )
+        body.extend(f"- {line}" for line in why_lines)
+        body.extend(["", "你可以:"])
+        body.extend(f"- {line}" for line in action_lines)
+        body.extend([f"投入时间: {effort_for_grade(grade)}", f"链接: {item.get('url', '')}"])
         body.append("")
 
     job_items = top_by_tag(items, {"job"}, 3)
-    startup_items = top_by_tag(items, {"startup", "product"}, 4)
-    market_items = top_by_tag(items, {"market", "devtools", "ai"}, 4)
-
-    if job_items:
-        body.append("工作/合作线索:")
-        for item in job_items:
+    explicit_jobs = [item for item in job_items if is_actionable_job(item)]
+    body.append("工作机会:")
+    if explicit_jobs:
+        for item in explicit_jobs[:2]:
             body.append(f"- {short(item['title'], 92)} → {item['url']}")
-        body.append("")
+    else:
+        body.append("今天没发现特别值得投递的 AI 岗位；只有招聘市场/remote work 的宏观讨论。")
+    body.append("")
 
-    if startup_items:
-        body.append("创业/产品线索:")
-        for item in startup_items:
-            body.append(f"- {short(item['title'], 92)} → {item['url']}")
-        body.append("")
-
-    if market_items:
-        body.append("市场/技术趋势:")
-        for item in market_items:
-            body.append(f"- {short(item['title'], 92)} ({item['source']})")
-        body.append("")
+    body.extend(
+        [
+            "创业机会:",
+            "本周趋势:",
+            "Agent Memory ↑",
+            "Agent Search ↑",
+            "Agent Security ↑",
+            "Agent Infrastructure ↑",
+            "Generic AI Wrapper ↓",
+            "",
+            "判断: 市场正在从“套壳聊天产品”往“Agent 底层能力”迁移。",
+            "",
+            "值得程度表:",
+            "| 项目 | 值得程度 |",
+            "|---|---|",
+        ]
+    )
+    for idx, item in enumerate(picks, 1):
+        body.append(f"| {display_name(item)} | {grade_for_item(item, idx)} |")
 
     if warnings:
-        body.append("采集异常:")
-        body.extend(f"- {clean_warning(warning)}" for warning in warnings[:6])
-        body.append("")
+        compact_warnings = [clean_warning(warning) for warning in warnings[:2]]
+        body.extend(["", "采集异常:", *[f"- {warning}" for warning in compact_warnings]])
 
     run_url = os.environ.get("GITHUB_RUN_URL")
     report_pointer = run_url or str(REPORT_PATH)
     body.extend(
         [
-            f"完整报告 → {report_pointer}",
             "",
-            "今天只做一件事: 从“今天最值得看”里挑 1 个，记录它的客户、痛点、变现方式，以及你能不能复制/合作/投简历。",
+            "今天只做一件事:",
+            f"打开 {best_name}。",
+            "回答: 客户是谁？怎么赚钱？如果 Andrew 来做会怎么改？",
+            "记录到 Notion。",
+            "",
+            f"完整原始报告 → {report_pointer}",
         ]
     )
     return "\n".join(body).strip() + "\n"
