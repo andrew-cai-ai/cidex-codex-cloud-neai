@@ -66,6 +66,7 @@ export GITHUB_TOKEN=ghp_xxx
 已经内置 GitHub Actions workflow：
 
 - [.github/workflows/daily-radar.yml](.github/workflows/daily-radar.yml)
+- [.github/workflows/daily-opportunity-radar.yml](.github/workflows/daily-opportunity-radar.yml)
 - [docs/CLOUD_DEPLOY.md](docs/CLOUD_DEPLOY.md)
 
 推到 GitHub 私有仓库后，在 repository secrets 里配置：
@@ -76,6 +77,29 @@ export GITHUB_TOKEN=ghp_xxx
 - 可选：`GH_SEARCH_TOKEN`
 
 之后电脑关机也会每天云端跑并发 Gmail 简报。
+
+## Opportunity Radar
+
+第二封日报会追踪工作/合作/创业/产品机会：
+
+```bash
+python3 opportunity_radar.py --hours 48 --max-items 25
+python3 run_opportunity_notify.py
+```
+
+覆盖：
+
+- GitHub Trending
+- Hacker News
+- Reddit RSS（AI、SaaS、创业、YC、SideProject）
+- Product Hunt
+- YC Blog
+- AI newsletters / market feeds
+
+输出：
+
+- `reports/opportunity_latest.md`
+- `reports/last_opportunity_email.txt`
 
 ## 怎么用报告
 

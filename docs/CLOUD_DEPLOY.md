@@ -5,8 +5,10 @@ Use GitHub Actions if you want the radar to run even when your Mac is asleep or 
 ## What Runs In The Cloud
 
 - Daily schedule: `08:00 America/Toronto` during daylight saving time (`12:00 UTC`)
+- Opportunity Radar schedule: `08:15 America/Toronto` during daylight saving time (`12:15 UTC`)
 - Manual trigger: GitHub Actions `workflow_dispatch`
 - Command: `python run_and_notify.py --days 7 --max-items 25 --per-query 12 --hn-per-query 15 --readme-limit 6 --require-email`
+- Opportunity command: `python run_opportunity_notify.py --hours 48 --max-items 25 --hn-per-query 12 --feed-limit 10 --github-limit 10 --require-email`
 - Output: Gmail digest plus downloadable `radar-reports` artifact
 - State: `data/seen_repos.json` is restored/saved with GitHub Actions cache so new-on-radar detection can continue across runs
 
@@ -50,7 +52,11 @@ After pushing:
 5. Confirm the Gmail digest arrives.
 6. Check the `radar-reports` artifact if you want the full Markdown report.
 
+Repeat the same for `Opportunity Radar Daily Digest` to verify the second daily email.
+
 If the run exits with code `3`, the digest email was not sent. Check the `Check required secrets` step first; if all secrets are present, open the `Run radar and send Gmail digest` step and look for the Gmail SMTP error.
+
+Reddit RSS may occasionally return HTTP 403 because Reddit blocks unauthenticated feed scraping. The Opportunity Radar treats this as a source warning and still sends the digest from HN, Product Hunt, GitHub Trending, YC, and newsletter feeds. For fully reliable Reddit coverage, add a future Reddit OAuth integration.
 
 ## Notes
 

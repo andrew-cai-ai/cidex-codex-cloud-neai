@@ -1,0 +1,91 @@
+name: Opportunity Radar Daily Digest
+
+on:
+  schedule:
+    # 08:15 America/Toronto during daylight saving time.
+    - cron: "15 12 * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  actions: write
+
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+
+jobs:
+  digest:
+    runs-on: ubuntu-latest
+    timeout-minutes: 18
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Restore opportunity state
+        uses: actions/cache/restore@v4
+        with:
+          path: data/opportunity_seen.json
+          key: opportunity-seen-${{ github.run_id }}
+          restore-keys: |
+            opportunity-seen-
+
+      - name: Check required secrets
+        env:
+          RADAR_EMAIL_TO: ${{ secrets.RADAR_EMAIL_TO }}
+          SMTP_USER: ${{ secrets.SMTP_USER }}
+          SMTP_PASSWORD: ${{ secrets.SMTP_PASSWORD }}
+        run: |
+          missing=0
+          for name in RADAR_EMAIL_TO SMTP_USER SMTP_PASSWORD; do
+            if [ -z "${!name}" ]; then
+              echo "::error title=Missing secret::$name is not configured in repository Actions secrets."
+              missing=1
+            fi
+          done
+          if [ "$missing" -ne 0 ]; then
+            exit 3
+          fi
+
+      - name: Run opportunity radar and send Gmail digest
+        env:
+          RADAR_EMAIL_TO: ${{ secrets.RADAR_EMAIL_TO }}
+          SMTP_USER: ${{ secrets.SMTP_USER }}
+          SMTP_PASSWORD: ${{ secrets.SMTP_PASSWORD }}
+          RADAR_EMAIL_FROM: ${{ secrets.SMTP_USER }}
+          OPPORTUNITY_EMAIL_SUBJECT_PREFIX: "[Opportunity Radar]"
+          GITHUB_RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: |
+          python -m unittest discover -s tests
+          python run_opportunity_notify.py \
+            --hours 48 \
+            --max-items 25 \
+            --hn-per-query 12 \
+            --feed-limit 10 \
+            --github-limit 10 \
+            --require-email
+
+      - name: Save opportunity state
+        if: always() && hashFiles('data/opportunity_seen.json') != ''
+        uses: actions/cache/save@v4
+        with:
+          path: data/opportunity_seen.json
+          key: opportunity-seen-${{ github.run_id }}
+
+      - name: Upload opportunity reports
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: opportunity-reports
+          path: |
+            reports/opportunity_latest.md
+            reports/*-opportunity-radar.md
+            reports/last_opportunity_email.txt
+            data/opportunity_raw/*.json
+          if-no-files-found: warn
+          retention-days: 14

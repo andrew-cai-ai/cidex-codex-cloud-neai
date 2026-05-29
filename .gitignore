@@ -1,8 +1,11 @@
 data/raw/
+data/opportunity_raw/
 data/seen_repos.json
+data/opportunity_seen.json
 config/email.env
 reports/*.md
 reports/last_email.txt
+reports/last_opportunity_email.txt
 __pycache__/
 tests/__pycache__/
 .DS_Store

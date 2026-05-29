@@ -1,0 +1,162 @@
+{
+  "lookback_hours": 48,
+  "min_score": 18,
+  "github_trending": [
+    {
+      "label": "github-trending-daily",
+      "url": "https://github.com/trending?since=daily"
+    },
+    {
+      "label": "github-trending-python",
+      "url": "https://github.com/trending/python?since=daily"
+    },
+    {
+      "label": "github-trending-typescript",
+      "url": "https://github.com/trending/typescript?since=daily"
+    }
+  ],
+  "hn_queries": [
+    {
+      "label": "launch-hn",
+      "query": "Launch HN"
+    },
+    {
+      "label": "show-hn-ai",
+      "query": "Show HN AI"
+    },
+    {
+      "label": "ai-startup",
+      "query": "AI startup"
+    },
+    {
+      "label": "saas-founder",
+      "query": "SaaS founder revenue"
+    },
+    {
+      "label": "hiring-ai",
+      "query": "hiring AI remote"
+    },
+    {
+      "label": "yc",
+      "query": "YC startup"
+    }
+  ],
+  "reddit_feeds": [
+    {
+      "label": "reddit-saas",
+      "url": "https://www.reddit.com/r/SaaS/.rss"
+    },
+    {
+      "label": "reddit-startups",
+      "url": "https://www.reddit.com/r/startups/.rss"
+    },
+    {
+      "label": "reddit-entrepreneur",
+      "url": "https://www.reddit.com/r/Entrepreneur/.rss"
+    },
+    {
+      "label": "reddit-ycombinator",
+      "url": "https://www.reddit.com/r/ycombinator/.rss"
+    },
+    {
+      "label": "reddit-artificial",
+      "url": "https://www.reddit.com/r/artificial/.rss"
+    },
+    {
+      "label": "reddit-localllama",
+      "url": "https://www.reddit.com/r/LocalLLaMA/.rss"
+    },
+    {
+      "label": "reddit-sideproject",
+      "url": "https://www.reddit.com/r/SideProject/.rss"
+    }
+  ],
+  "rss_feeds": [
+    {
+      "label": "product-hunt",
+      "url": "https://www.producthunt.com/feed"
+    },
+    {
+      "label": "yc-blog",
+      "url": "https://www.ycombinator.com/blog/feed"
+    },
+    {
+      "label": "tldr-ai",
+      "url": "https://tldr.tech/api/rss/ai"
+    },
+    {
+      "label": "ai-news",
+      "url": "https://buttondown.email/ainews/rss"
+    },
+    {
+      "label": "import-ai",
+      "url": "https://jack-clark.net/feed/"
+    },
+    {
+      "label": "latent-space",
+      "url": "https://www.latent.space/feed"
+    },
+    {
+      "label": "sequoia",
+      "url": "https://www.sequoiacap.com/feed/"
+    }
+  ],
+  "keywords": {
+    "opportunity": [
+      "hiring",
+      "we're hiring",
+      "remote",
+      "job",
+      "jobs",
+      "founder",
+      "cofounder",
+      "startup",
+      "YC",
+      "Launch HN",
+      "Show HN",
+      "Product Hunt",
+      "SaaS",
+      "B2B",
+      "seed",
+      "funding",
+      "raised",
+      "customers",
+      "revenue",
+      "waitlist",
+      "beta",
+      "agent",
+      "workflow",
+      "automation",
+      "devtools",
+      "AI coding",
+      "AI agent",
+      "LLM",
+      "MCP"
+    ],
+    "high_intent": [
+      "hiring",
+      "remote",
+      "founder",
+      "cofounder",
+      "Launch HN",
+      "Product Hunt",
+      "YC",
+      "raised",
+      "seed",
+      "customers",
+      "revenue",
+      "waitlist"
+    ],
+    "noise": [
+      "meme",
+      "giveaway",
+      "coupon",
+      "wallpaper",
+      "crypto airdrop",
+      "rocket explodes",
+      "apocalypse",
+      "tax costing",
+      "politics"
+    ]
+  }
+}
