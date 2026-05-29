@@ -4,15 +4,13 @@
 from __future__ import annotations
 
 import argparse
-import json
 import os
-import subprocess
 import sys
-from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
 
-from run_and_notify import load_env_file, send_email
+from radar_notify_common import StepResult, load_env_file, load_latest_json, run_command, truncate
+from run_and_notify import send_email
 
 
 ROOT = Path(__file__).resolve().parent
@@ -20,31 +18,47 @@ REPORT_PATH = ROOT / "reports" / "opportunity_latest.md"
 EMAIL_LOG_PATH = ROOT / "reports" / "last_opportunity_email.txt"
 RAW_DIR = ROOT / "data" / "opportunity_raw"
 
-
-@dataclass
-class StepResult:
-    name: str
-    ok: bool
-    output: str
-
-
-def run_command(name: str, command: list[str]) -> StepResult:
-    proc = subprocess.run(
-        command,
-        cwd=ROOT,
-        text=True,
-        stdout=subprocess.PIPE,
-        stderr=subprocess.STDOUT,
-        timeout=240,
-        check=False,
-    )
-    return StepResult(name=name, ok=proc.returncode == 0, output=proc.stdout.strip())
+THEME_BOOST = {
+    "agent-memory": 70,
+    "agent-search": 60,
+    "agent-security": 55,
+    "agent-infra": 35,
+}
+THEME_PENALTY = {
+    "product-launch": 15,
+}
+THEME_LABELS = {
+    "agent-memory": "Agent Memory",
+    "agent-search": "Agent Search",
+    "agent-security": "Agent Security",
+    "agent-infra": "Agent Infrastructure",
+    "product-launch": "产品发布",
+    "startup": "创业",
+    "saas": "SaaS",
+    "job": "招聘",
+    "ai": "AI",
+    "devtools": "开发者工具",
+    "product": "产品",
+    "market": "市场",
+}
 
 
 def run_self_tests() -> list[StepResult]:
     return [
-        run_command("compile", [sys.executable, "-m", "py_compile", "opportunity_radar.py", "run_opportunity_notify.py"]),
-        run_command("unit-tests", [sys.executable, "-m", "unittest", "discover", "-s", "tests"]),
+        run_command(
+            "compile",
+            [
+                sys.executable,
+                "-m",
+                "py_compile",
+                "opportunity_radar.py",
+                "run_opportunity_notify.py",
+                "project_guidance.py",
+                "radar_notify_common.py",
+            ],
+            timeout=240,
+        ),
+        run_command("unit-tests", [sys.executable, "-m", "unittest", "discover", "-s", "tests"], timeout=240),
     ]
 
 
@@ -63,24 +77,76 @@ def run_radar(args: argparse.Namespace) -> StepResult:
         "--github-limit",
         str(args.github_limit),
     ]
-    return run_command("opportunity-radar", command)
+    return run_command("opportunity-radar", command, timeout=240)
 
 
 def latest_raw() -> dict | None:
-    files = sorted(RAW_DIR.glob("*.json"))
-    if not files:
-        return None
-    try:
-        return json.loads(files[-1].read_text(encoding="utf-8"))
-    except (OSError, json.JSONDecodeError):
-        return None
+    return load_latest_json(RAW_DIR)
 
 
 def short(value: str, limit: int = 120) -> str:
-    value = " ".join((value or "").split())
-    if len(value) <= limit:
-        return value
-    return value[: limit - 1].rstrip() + "..."
+    return truncate(value, limit)
+
+
+def item_text(item: dict) -> str:
+    return f"{item.get('title', '')} {item.get('summary', '')} {' '.join(item.get('tags') or [])}".lower()
+
+
+def detect_themes(text: str) -> set[str]:
+    themes: set[str] = set()
+    if any(needle in text for needle in ("memory poisoning", "memory guard", "owasp")):
+        themes.add("agent-security")
+    elif any(
+        needle in text
+        for needle in (
+            "share solution",
+            "openhive",
+            "dont re-solve",
+            "agents share",
+            "agent memory",
+            "long-term memory",
+            "memory layer",
+        )
+    ):
+        themes.add("agent-memory")
+    if any(needle in text for needle in ("search router", "web search", "retrieval", "retrieval-ready")):
+        themes.add("agent-search")
+    if any(needle in text for needle in ("mcp", "model context protocol", "infrastructure")):
+        themes.add("agent-infra")
+    if any(needle in text for needle in ("product hunt", "product trailers", "launch hn")):
+        themes.add("product-launch")
+    return themes
+
+
+def editorial_priority(item: dict) -> float:
+    text = item_text(item)
+    score = float(item.get("score") or 0)
+    for theme in detect_themes(text):
+        score += THEME_BOOST.get(theme, 0)
+        score -= THEME_PENALTY.get(theme, 0)
+    return score
+
+
+def grade_for_item(item: dict, rank: int) -> str:
+    score = float(item.get("score") or 0)
+    if rank == 1 and score >= 65:
+        return "A"
+    if rank <= 2 and score >= 55:
+        return "A"
+    if rank == 3 or score >= 50:
+        return "B+"
+    if rank <= 5:
+        return "B"
+    return "C"
+
+
+def effort_for_grade(grade: str) -> str:
+    return {
+        "A": "★★★★★",
+        "B+": "★★★★",
+        "B": "★★★",
+        "C": "★★",
+    }.get(grade, "★★")
 
 
 def clean_warning(value: str) -> str:
@@ -101,48 +167,16 @@ def display_name(item: dict) -> str:
     return short(title, 54)
 
 
-def editorial_priority(item: dict) -> float:
-    title = f"{item.get('title', '')} {item.get('summary', '')}".lower()
-    score = float(item.get("score") or 0)
-    if "openhive" in title:
-        score += 120
-    elif "search router" in title:
-        score += 100
-    elif "memory guard" in title or "memory poisoning" in title:
-        score += 80
-    elif "agent memory" in title:
-        score += 70
-    elif "ai agents" in title or "agent" in title:
-        score += 20
-    if "product trailers" in title or "launcher" in title:
-        score -= 20
-    return score
-
-
-def grade_for_item(item: dict, rank: int) -> str:
-    title = f"{item.get('title', '')} {item.get('summary', '')}".lower()
-    if rank <= 2 or any(key in title for key in ["openhive", "search router"]):
-        return "A"
-    if "memory guard" in title or rank == 3:
-        return "B+"
-    if rank <= 5:
-        return "B"
-    return "C"
-
-
-def effort_for_grade(grade: str) -> str:
-    return {
-        "A": "★★★★★",
-        "B+": "★★★★",
-        "B": "★★★",
-        "C": "★★",
-    }.get(grade, "★★")
+def focus_context() -> str:
+    return os.environ.get("OPPORTUNITY_FOCUS_CONTEXT", "你现有的 agent 工作流")
 
 
 def opportunity_profile(item: dict) -> tuple[str, list[str], list[str]]:
-    title = f"{item.get('title', '')} {item.get('summary', '')}".lower()
-    name = display_name(item)
-    if "openhive" in title:
+    text = item_text(item)
+    themes = detect_themes(text)
+    focus = focus_context()
+
+    if "agent-memory" in themes and any(x in text for x in ("share", "openhive", "dont re-solve")):
         return (
             "AI Agent 之间共享经验库，避免每个 agent 重复解决同一个问题。",
             [
@@ -152,36 +186,36 @@ def opportunity_profile(item: dict) -> tuple[str, list[str], list[str]]:
             ],
             [
                 "学习它的 memory / solution sharing 架构。",
-                "思考能不能用于直播导演 AI: 让导演 agent 复用历史直播决策。",
+                f"思考能不能接入{focus}，复用历史决策和解决方案。",
             ],
         )
-    if "search router" in title:
+    if "agent-search" in themes:
         return (
             "给 AI Agent 提供统一搜索接口，让 agent 更容易调用 web/search/retrieval 能力。",
             [
                 "几乎所有 agent 都需要搜索和检索。",
                 "它属于基础设施层，不是一次性 wrapper。",
-                "很容易接到你自己的 Codex/直播导演/研究 agent 里。",
+                f"比较容易接到{focus}里。",
             ],
             [
                 "Fork 或 clone，跑 demo。",
-                "评估能不能作为直播导演 AI 的搜索模块。",
+                f"评估能不能作为{focus}的搜索模块。",
             ],
         )
-    if "memory guard" in title or "memory poisoning" in title:
+    if "agent-security" in themes:
         return (
             "Agent Memory 安全项目，防止恶意内容污染 agent 的长期记忆。",
             [
                 "Agent Security 还很早，但企业客户一定会关心。",
                 "Memory Poisoning 会随着长期 agent 普及变成真实问题。",
-                "懂这块会让你在面试、创业、产品判断上更领先。",
+                "懂这块会让你在产品判断和安全设计上更领先。",
             ],
             [
                 "了解 memory poisoning 攻击面。",
                 "记录 2 个可以加进你 agent 系统的防护点。",
             ],
         )
-    if "agent" in title and "search" in title:
+    if "agent-infra" in themes or ("agent" in text and "search" in text):
         return (
             "Agent 基础设施项目，帮助 agent 获取或组织外部信息。",
             [
@@ -190,10 +224,10 @@ def opportunity_profile(item: dict) -> tuple[str, list[str], list[str]]:
             ],
             [
                 "看 API 和 demo。",
-                "判断它能否接入你的自动化链路。",
+                f"判断它能否接入{focus}。",
             ],
         )
-    if "product hunt" in title or "product trailers" in title:
+    if "product-launch" in themes:
         return (
             "围绕产品发布/获客的新工具，适合观察 SaaS launch 玩法。",
             [
@@ -205,7 +239,7 @@ def opportunity_profile(item: dict) -> tuple[str, list[str], list[str]]:
                 "记录它怎么定位、怎么转化用户。",
             ],
         )
-    if "hiring" in title or "remote" in title:
+    if "hiring" in text or "remote" in text:
         return (
             "招聘市场信号，不一定是具体岗位，但能反映 AI/remote 对岗位结构的影响。",
             [
@@ -230,6 +264,21 @@ def opportunity_profile(item: dict) -> tuple[str, list[str], list[str]]:
     )
 
 
+def summarize_trends(items: list[dict]) -> list[str]:
+    counts: dict[str, int] = {}
+    for item in items[:30]:
+        for tag in item.get("tags") or []:
+            counts[tag] = counts.get(tag, 0) + 1
+        for theme in detect_themes(item_text(item)):
+            counts[theme] = counts.get(theme, 0) + 1
+
+    top = sorted(counts.items(), key=lambda pair: -pair[1])[:5]
+    if not top or top[0][1] < 2:
+        return ["样本量偏小，暂不判断宏观趋势；先看今日主推项。"]
+
+    return [f"{THEME_LABELS.get(key, key)} ({count})" for key, count in top]
+
+
 def pick_research_items(items: list[dict], limit: int = 3) -> list[dict]:
     return sorted(items, key=editorial_priority, reverse=True)[:limit]
 
@@ -238,20 +287,19 @@ def top_by_tag(items: list[dict], wanted: set[str], limit: int) -> list[dict]:
     selected = []
     seen = set()
     for item in items:
-        if item["id"] in seen:
+        item_key = str(item.get("id") or item.get("url") or item.get("title") or id(item))
+        if item_key in seen:
             continue
         if wanted.intersection(set(item.get("tags") or [])):
             selected.append(item)
-            seen.add(item["id"])
+            seen.add(item_key)
         if len(selected) >= limit:
             break
     return selected
 
 
 def is_actionable_job(item: dict) -> bool:
-    title = (item.get("title") or "").lower()
-    summary = (item.get("summary") or "").lower()
-    text = f"{title} {summary}"
+    text = item_text(item)
     strong_patterns = [
         "we're hiring",
         "we are hiring",
@@ -291,57 +339,49 @@ def build_email_body(test_results: list[StepResult], radar_result: StepResult) -
         "",
         "结论: 今天不是看 20 个链接，而是判断有没有值得学、值得 Fork、值得做成产品的机会。",
         f"如果今天只能看一个: {best_name}。",
-        "",
-        "最值得研究:",
     ]
 
-    for idx, item in enumerate(picks, 1):
-        name = display_name(item)
-        grade = grade_for_item(item, idx)
+    if picks:
+        item = picks[0]
+        grade = grade_for_item(item, 1)
         one_liner, why_lines, action_lines = opportunity_profile(item)
         body.extend(
             [
-                f"{idx}. {name} — 值得程度 {grade}",
+                "",
+                f"今日主推 — {display_name(item)} ({grade})",
                 one_liner,
                 "",
                 "为什么值得看:",
+                *[f"- {line}" for line in why_lines],
+                "",
+                "你可以:",
+                *[f"- {line}" for line in action_lines],
+                f"投入时间: {effort_for_grade(grade)}",
+                f"链接: {item.get('url', '')}",
             ]
         )
-        body.extend(f"- {line}" for line in why_lines)
-        body.extend(["", "你可以:"])
-        body.extend(f"- {line}" for line in action_lines)
-        body.extend([f"投入时间: {effort_for_grade(grade)}", f"链接: {item.get('url', '')}"])
-        body.append("")
 
-    job_items = top_by_tag(items, {"job"}, 3)
+    if len(picks) > 1:
+        body.extend(["", "次优先:"])
+        for idx, item in enumerate(picks[1:3], 2):
+            grade = grade_for_item(item, idx)
+            one_liner, _, _ = opportunity_profile(item)
+            body.append(
+                f"{idx}. {display_name(item)} — {grade} · {short(one_liner, 72)} → {item.get('url', '')}"
+            )
+
+    job_items = top_by_tag(items, {"job"}, len(items))
     explicit_jobs = [item for item in job_items if is_actionable_job(item)]
-    body.append("工作机会:")
+    body.extend(["", "工作机会:"])
     if explicit_jobs:
         for item in explicit_jobs[:2]:
             body.append(f"- {short(item['title'], 92)} → {item['url']}")
     else:
         body.append("今天没发现特别值得投递的 AI 岗位；只有招聘市场/remote work 的宏观讨论。")
-    body.append("")
 
-    body.extend(
-        [
-            "创业机会:",
-            "本周趋势:",
-            "Agent Memory ↑",
-            "Agent Search ↑",
-            "Agent Security ↑",
-            "Agent Infrastructure ↑",
-            "Generic AI Wrapper ↓",
-            "",
-            "判断: 市场正在从“套壳聊天产品”往“Agent 底层能力”迁移。",
-            "",
-            "值得程度表:",
-            "| 项目 | 值得程度 |",
-            "|---|---|",
-        ]
-    )
-    for idx, item in enumerate(picks, 1):
-        body.append(f"| {display_name(item)} | {grade_for_item(item, idx)} |")
+    trends = summarize_trends(items)
+    body.extend(["", "今日信号分布 (来自本次抓取):"])
+    body.extend(f"- {line}" for line in trends)
 
     if warnings:
         compact_warnings = [clean_warning(warning) for warning in warnings[:2]]
@@ -354,8 +394,7 @@ def build_email_body(test_results: list[StepResult], radar_result: StepResult) -
             "",
             "今天只做一件事:",
             f"打开 {best_name}。",
-            "回答: 客户是谁？怎么赚钱？如果 Andrew 来做会怎么改？",
-            "记录到 Notion。",
+            "回答: 客户是谁？怎么赚钱？你会怎么改？",
             "",
             f"完整原始报告 → {report_pointer}",
         ]
@@ -380,7 +419,11 @@ def main() -> int:
     args = parse_args()
     load_env_file()
     test_results = run_self_tests()
-    radar_result = StepResult("opportunity-radar", True, "Skipped radar run; used existing report.") if args.skip_radar else run_radar(args)
+    radar_result = (
+        StepResult("opportunity-radar", True, "Skipped radar run; used existing report.")
+        if args.skip_radar
+        else run_radar(args)
+    )
     if not REPORT_PATH.exists():
         print(f"Missing report: {REPORT_PATH}", file=sys.stderr)
         return 2

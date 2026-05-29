@@ -25,6 +25,8 @@ from urllib.error import HTTPError, URLError
 from urllib.parse import urlencode, urlparse
 from urllib.request import Request, urlopen
 
+from project_guidance import leverage_note
+
 
 ROOT = Path(__file__).resolve().parent
 DEFAULT_CONFIG = ROOT / "config" / "topics.json"
@@ -219,53 +221,6 @@ def classify_repo(blob: str) -> list[str]:
             tags.append(tag)
     return tags[:5]
 
-
-def leverage_note(tags: list[str], blob: str, description: str = "") -> str:
-    desc = (description or "").lower()
-    tag_set = set(tags)
-
-    if any(needle in desc for needle in ("knowledge graph", "interactive graph", "code into an interactive")):
-        return "优先学「代码 → 可交互知识图谱」流程，复用到你自己的 repo 理解场景。"
-    if any(needle in desc for needle in ("token consumption", "reduce llm token", "tokenscope", "token cost")):
-        return "优先评估 token 压缩/成本监控方案，看能否接到日常 Codex/Claude 会话。"
-    if any(needle in desc for needle in ("design system", "design alternative", "prototype", "desktop app")):
-        return "优先看本地设计/原型工作流，评估能否替代现有 Claude Design 链路。"
-    if any(needle in desc for needle in ("harness", "instinct", "performance optimization")):
-        return "优先拆 agent harness：skills、instincts、memory、security 四层怎么协作。"
-    if "meta-prompt" in desc or "spec-driven" in desc or "context engineering" in desc:
-        return "优先拆 meta-prompt / spec 驱动开发模板，直接移植到你的项目规范。"
-    if "proxy" in desc and "cli" in desc:
-        return "优先跑 CLI proxy demo，量化对 token 消耗和响应延迟的影响。"
-    if "lightweight" in desc and "agent" in desc:
-        return "优先看轻量 agent 的 tool/chat 接入方式，适合嵌进现有自动化。"
-
-    if "skills-prompts" in tag_set:
-        if "memory-context" in tag_set:
-            return "优先拆 skills/commands，并重点学 memory/上下文持久化设计。"
-        if "mcp" in tag_set:
-            return "优先拆 skills + MCP 集成，直接接入现有 agent 工具链。"
-        if "workflow-orchestration" in tag_set:
-            return "优先拆 prompt/skills，并学多步工作流编排方式。"
-        if "ide-editor" in tag_set:
-            return "优先拆 editor 集成的 skills/commands，改造成 IDE 内工作流。"
-        return "优先拆出 prompt/skills/commands，改造成自己的 Codex/Claude 工作流模板。"
-    if "mcp" in tag_set:
-        return "优先看 MCP 接口和集成方式，可直接接入现有 agent 工具链。"
-    if "observability" in tag_set:
-        return "优先复用 token、成本、会话监控思路，帮你管 AI coding 产能。"
-    if "workflow-orchestration" in tag_set:
-        return "优先研究多 agent 编排、任务拆分和上下文传递方式。"
-    if "coding-agent" in tag_set or "codex" in tag_set or "claude-code" in tag_set:
-        return "优先跑 demo，再看 agent loop、工具调用、权限和上下文管理。"
-    if "ide-editor" in tag_set:
-        return "优先看编辑器集成、命令入口和开发者体验设计。"
-    if "automation" in tag_set:
-        return "优先复用调度、通知和跨平台自动化能力。"
-    if "open source" in blob or "mit" in blob or "apache" in blob:
-        return "先确认 license，再抽取可复用模块或产品交互。"
-    return "先看 README、示例和 license，判断是否值得 clone 试跑。"
-
-
 def relevance_score(repo: dict[str, Any], signal: RepoSignal, config: dict[str, Any]) -> int:
     blob = text_blob(repo, signal)
     keywords = config["keywords"]
@@ -356,7 +311,7 @@ def score_repo(
         relevance=relevance,
         tags=tags,
         reason="; ".join(reasons),
-        leverage=leverage_note(tags, text_blob(repo, signal), repo.get("description") or ""),
+        leverage=leverage_note(tags, text_blob(repo, signal), repo.get("description") or "", repo.get("full_name") or ""),
         is_new=is_new,
         warnings=warnings,
     )

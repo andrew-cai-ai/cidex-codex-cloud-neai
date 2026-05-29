@@ -4,6 +4,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 import ai_radar
+import project_guidance
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -66,25 +67,28 @@ class RadarScoringTest(unittest.TestCase):
         self.assertGreater(scored.score, 100)
 
     def test_leverage_note_differs_by_description(self):
-        harness = ai_radar.leverage_note(
+        harness = project_guidance.leverage_note(
             ["skills-prompts", "memory-context"],
             "",
             "The agent harness performance optimization system. Skills, instincts, memory, security.",
+            "affaan-m/ECC",
         )
-        graph = ai_radar.leverage_note(
+        graph = project_guidance.leverage_note(
             ["skills-prompts", "workflow-orchestration"],
             "",
             "Turn any code into an interactive knowledge graph you can explore.",
+            "Lum1104/Understand-Anything",
         )
-        token = ai_radar.leverage_note(
+        token = project_guidance.leverage_note(
             ["observability"],
             "",
             "CLI proxy that reduces LLM token consumption by 60-90%.",
+            "rtk-ai/rtk",
         )
 
-        self.assertIn("harness", harness)
-        self.assertIn("知识图谱", graph)
-        self.assertIn("token", token.lower())
+        self.assertIn("README", harness)
+        self.assertIn("图谱", graph)
+        self.assertIn("demo", token.lower())
         self.assertNotEqual(harness, graph)
 
 

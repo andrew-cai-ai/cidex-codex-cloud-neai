@@ -113,7 +113,6 @@ python3 run_opportunity_notify.py
 
 ## 下一步增强
 
-- 接 Product Hunt / Reddit / GitHub Trending 抓取。
-- 加 Slack、邮件或飞书推送。
-- 加 LLM 摘要：自动读 README，生成“能不能为我所用”的短评。
+- Reddit OAuth 或替代源，解决 RSS 403。
+- 加 LLM 摘要：自动读 README/landing page，生成「能不能为我所用」的短评。
 - 加去重和项目画像缓存，按每日新增 stars 做真正的增长曲线。

@@ -59,16 +59,16 @@ class OpportunityDigestTest(unittest.TestCase):
                 run_opportunity_notify.StepResult("opportunity-radar", True, ""),
             )
 
-        self.assertIn("今日 AI 机会雷达", body)
-        self.assertIn("结论:", body)
+        self.assertIn("今日主推", body)
         self.assertIn("如果今天只能看一个: OpenHive", body)
-        self.assertIn("最值得研究:", body)
         self.assertIn("OpenHive", body)
-        self.assertIn("值得程度 A", body)
+        self.assertIn("次优先:", body)
         self.assertIn("今天只做一件事:", body)
         self.assertIn("客户是谁？怎么赚钱？", body)
-        self.assertNotIn("今天最值得看:", body)
-        self.assertLess(len(body.splitlines()), 80)
+        self.assertIn("今日信号分布", body)
+        self.assertNotIn("值得程度表:", body)
+        self.assertNotIn("| OpenHive |", body)
+        self.assertLess(len(body.splitlines()), 55)
 
     def test_editorial_priority_prefers_agent_infrastructure(self):
         picks = run_opportunity_notify.pick_research_items(SAMPLE_RAW["items"], 3)
@@ -83,6 +83,16 @@ class OpportunityDigestTest(unittest.TestCase):
         }
 
         self.assertFalse(run_opportunity_notify.is_actionable_job(item))
+
+    def test_top_by_tag_handles_missing_ids(self):
+        items = [
+            {"title": "market note", "tags": ["market"]},
+            {"title": "remote engineer", "url": "https://example.com/job", "tags": ["job"]},
+        ]
+
+        selected = run_opportunity_notify.top_by_tag(items, {"job"}, 3)
+
+        self.assertEqual(selected[0]["title"], "remote engineer")
 
 
 if __name__ == "__main__":

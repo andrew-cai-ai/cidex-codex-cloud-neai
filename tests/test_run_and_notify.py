@@ -71,6 +71,18 @@ SAMPLE_RAW = {
             "stargazers_count": 198078,
         },
         {
+            "full_name": "Lum1104/Understand-Anything",
+            "html_url": "https://github.com/Lum1104/Understand-Anything",
+            "description": "Turn any code into an interactive knowledge graph you can explore.",
+            "stargazers_count": 43889,
+        },
+        {
+            "full_name": "safishamsi/graphify",
+            "html_url": "https://github.com/safishamsi/graphify",
+            "description": "AI coding assistant skill. Turn any folder of code into analyzable context.",
+            "stargazers_count": 55916,
+        },
+        {
             "full_name": "nexu-io/open-design",
             "html_url": "https://github.com/nexu-io/open-design",
             "description": "Local-first Claude Design alternative.",
@@ -87,21 +99,29 @@ SAMPLE_RAW = {
 
 
 class EmailDigestTest(unittest.TestCase):
-    def test_concise_digest_skips_top_three_in_rest(self):
-        primary, rest, new_preview, hn_items, extra_new = run_and_notify.concise_digest_from_raw(SAMPLE_RAW)
+    def test_concise_digest_primary_and_secondary(self):
+        primary, secondary, rest, new_preview, hn_items, extra_new = run_and_notify.concise_digest_from_raw(SAMPLE_RAW)
 
         self.assertTrue(primary[0].startswith("1. affaan-m/ECC"))
         self.assertTrue(any("是什么:" in line for line in primary))
-        self.assertTrue(any("为什么看:" in line for line in primary))
-        self.assertTrue(any("今天动作:" in line for line in primary))
-        self.assertTrue(any("链接: https://github.com/affaan-m/ECC" in line for line in primary))
+        self.assertEqual(len(secondary), 2)
+        self.assertIn("Lum1104/Understand-Anything", secondary[0])
+        self.assertIn("safishamsi/graphify", secondary[1])
+        self.assertNotEqual(secondary[0], secondary[1])
         self.assertEqual(len(rest), 4)
-        self.assertIn("nexu-io/open-design", rest[0])
-        for name in ("affaan-m/ECC", "Lum1104/Understand-Anything", "safishamsi/graphify"):
-            self.assertTrue(all(name not in line for line in rest))
         self.assertEqual(len(new_preview), 3)
         self.assertEqual(extra_new, 1)
         self.assertEqual(len(hn_items), 3)
+
+    def test_concise_digest_handles_missing_raw(self):
+        primary, secondary, rest, new_preview, hn_items, extra_new = run_and_notify.concise_digest_from_raw(None)
+
+        self.assertEqual(primary, [])
+        self.assertEqual(secondary, [])
+        self.assertEqual(rest, [])
+        self.assertEqual(new_preview, [])
+        self.assertEqual(hn_items, [])
+        self.assertEqual(extra_new, 0)
 
     def test_build_email_body_is_compact(self):
         report = "# AI OSS Radar\n\n## Executive Picks\n1. sample\n"
@@ -113,13 +133,11 @@ class EmailDigestTest(unittest.TestCase):
             )
 
         self.assertIn("AI OSS Radar ·", body)
-        self.assertIn("怎么读:", body)
-        self.assertIn("今日要看:", body)
+        self.assertIn("今日主推:", body)
+        self.assertIn("次优先 (#2–#3):", body)
         self.assertIn("是什么:", body)
-        self.assertIn("为什么看:", body)
         self.assertNotIn("Top 10 候选", body)
-        self.assertNotIn("今天优先看这 3 个", body)
-        self.assertLess(len(body.splitlines()), 50)
+        self.assertLess(len(body.splitlines()), 40)
 
     def test_format_tags_limits_count(self):
         self.assertEqual(run_and_notify.format_tags(["a", "b", "c"], limit=2), "a, b")
