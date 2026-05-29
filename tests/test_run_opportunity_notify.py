@@ -46,6 +46,24 @@ SAMPLE_RAW = {
             "why": "startup signal",
             "action": "look",
         },
+        {
+            "id": "brandfetch-job",
+            "title": "Brandfetch | Senior Backend Engineer | Remote",
+            "url": "https://brandfetch.com",
+            "source": "hnhiring-remote",
+            "source_type": "job-board",
+            "tags": ["job", "ai", "devtools"],
+            "score": 190,
+            "summary": "Senior Backend Engineer. Remote. AI agent MCP. AWS. Real-time metering.",
+            "metrics": {
+                "company": "Brandfetch",
+                "role": "Senior Backend Engineer",
+                "job_match_score": 105,
+                "job_match_reasons": ["senior backend", "backend", "aws", "AI/LLM/agent 相关"],
+                "job_match_risks": [],
+                "source_name": "HNHIRING",
+            },
+        },
     ],
     "warnings": ["Reddit feed failed [reddit-saas]: HTTP 403: blocked html"],
 }
@@ -59,16 +77,22 @@ class OpportunityDigestTest(unittest.TestCase):
                 run_opportunity_notify.StepResult("opportunity-radar", True, ""),
             )
 
-        self.assertIn("今日主推", body)
-        self.assertIn("如果今天只能看一个: OpenHive", body)
+        self.assertIn("# 今日 AI 机会雷达", body)
+        self.assertIn("## 最值得关注（最多3个）", body)
+        self.assertIn("## 工作机会（最多3个）", body)
         self.assertIn("OpenHive", body)
-        self.assertIn("次优先:", body)
-        self.assertIn("今天只做一件事:", body)
-        self.assertIn("客户是谁？怎么赚钱？", body)
-        self.assertIn("今日信号分布", body)
+        self.assertIn("是否值得投简历:", body)
+        self.assertIn("是否值得 Fork:", body)
+        self.assertIn("是否值得创业参考:", body)
+        self.assertIn("优先级 / 预计商业价值:", body)
+        self.assertIn("Brandfetch", body)
+        self.assertIn("预计TC:", body)
+        self.assertIn("## 今日唯一动作", body)
         self.assertNotIn("值得程度表:", body)
         self.assertNotIn("| OpenHive |", body)
-        self.assertLess(len(body.splitlines()), 55)
+        self.assertNotIn("今日信号分布", body)
+        self.assertLessEqual(body.count("链接:"), 5)
+        self.assertLess(len(body.splitlines()), 80)
 
     def test_editorial_priority_prefers_agent_infrastructure(self):
         picks = run_opportunity_notify.pick_research_items(SAMPLE_RAW["items"], 3)
@@ -119,6 +143,19 @@ class OpportunityDigestTest(unittest.TestCase):
         self.assertIn("Atomic", lines[0])
         self.assertTrue(any("backend" in line for line in lines))
         self.assertTrue(any("YC Jobs" in line for line in lines))
+
+    def test_attention_item_has_required_decision_fields(self):
+        item = SAMPLE_RAW["items"][1]
+
+        lines = run_opportunity_notify.format_attention_item(item, 1)
+        text = "\n".join(lines)
+
+        self.assertIn("为什么值得 Andrew 看:", text)
+        self.assertIn("对 Andrew 的价值:", text)
+        self.assertIn("是否值得投简历:", text)
+        self.assertIn("是否值得 Fork:", text)
+        self.assertIn("是否值得创业参考:", text)
+        self.assertIn("优先级 / 预计商业价值:", text)
 
 
 if __name__ == "__main__":

@@ -410,84 +410,192 @@ def pick_job_items(items: list[dict], limit: int = 3) -> list[dict]:
     return job_items[:limit]
 
 
+def is_github_url(item: dict) -> bool:
+    return "github.com/" in str(item.get("url") or "").lower()
+
+
+def commercial_value(item: dict) -> str:
+    text = item_text(item)
+    themes = detect_themes(text)
+    if {"agent-memory", "agent-search", "agent-security", "agent-infra"}.intersection(themes):
+        return "A"
+    if is_github_url(item) and any(tag in item.get("tags") or [] for tag in ("devtools", "ai", "startup")):
+        return "A"
+    if any(tag in item.get("tags") or [] for tag in ("startup", "product", "devtools", "saas")):
+        return "B"
+    return "C"
+
+
+def project_priority(item: dict, rank: int) -> str:
+    value = commercial_value(item)
+    if value == "A" or rank == 1:
+        return "A"
+    if value == "B":
+        return "B"
+    return "C"
+
+
+def worth_applying_to_project(item: dict) -> str:
+    text = item_text(item)
+    if "hiring" in text or "jobs" in text or "careers" in text:
+        return "可能，先查 careers/LinkedIn 有没有 Senior/Staff backend 或 AI infra 岗。"
+    if any(tag in item.get("tags") or [] for tag in ("startup", "product", "ai")):
+        return "暂不直接投；先把它当公司/方向线索，看到岗位再投。"
+    return "否，先研究项目价值。"
+
+
+def worth_forking(item: dict) -> str:
+    text = item_text(item)
+    if is_github_url(item):
+        if "agent" in text or "mcp" in text or "devtools" in item.get("tags", []):
+            return "是，优先 Fork/clone 看架构、接口和可复用模块。"
+        return "可以，先看 license 和 demo。"
+    return "否，先看产品/市场，不急着 Fork。"
+
+
+def worth_startup_reference(item: dict) -> str:
+    value = commercial_value(item)
+    if value == "A":
+        return "是，适合作为 AI infra / agent 平台方向参考。"
+    if value == "B":
+        return "可以，适合观察定位、客户和获客方式。"
+    return "一般，只做背景信号。"
+
+
+def andrew_project_value(item: dict) -> str:
+    text = item_text(item)
+    if "backend" in text or "infrastructure" in text or "platform" in text:
+        return "能帮你把 Disney/Binance/TikTok 的后端和实时系统经验，转成 AI infra 叙事。"
+    if "agent" in text or "mcp" in text or "llm" in text:
+        return "能帮你补足 Agent/LLM 产品判断，方便求职面试和创业选题。"
+    if is_github_url(item):
+        return "能作为可复用技术样本，帮你更快搭 demo 或扩展 Codex 工作流。"
+    return "能作为市场线索，判断 AI 产品机会是否值得继续追。"
+
+
+def format_attention_item(item: dict, rank: int) -> list[str]:
+    name = display_name(item)
+    one_liner, why_lines, action_lines = opportunity_profile(item)
+    priority = project_priority(item, rank)
+    return [
+        f"{rank}. {name}",
+        short(one_liner, 120),
+        f"为什么值得 Andrew 看: {short(' '.join(why_lines), 150)}",
+        f"对 Andrew 的价值: {andrew_project_value(item)}",
+        f"是否值得投简历: {worth_applying_to_project(item)}",
+        f"是否值得 Fork: {worth_forking(item)}",
+        f"是否值得创业参考: {worth_startup_reference(item)}",
+        f"优先级 / 预计商业价值: {priority}",
+        f"链接: {item.get('url', '')}",
+    ]
+
+
+def estimate_tc(item: dict) -> str:
+    metrics = item.get("metrics") or {}
+    salary = metrics.get("salary") or ""
+    salary_max = int(metrics.get("salary_max_detected") or metrics.get("salary_max") or 0)
+    if salary:
+        return str(salary)
+    if salary_max:
+        return f"最高约 ${salary_max:,}"
+    return "未公开；申请前确认 base + equity 是否接近/超过 $300k USD"
+
+
+def job_priority(item: dict) -> str:
+    text = item_text(item)
+    top_companies = ("openai", "anthropic", "cursor", "perplexity", "glean", "cohere")
+    if any(company in text for company in top_companies):
+        return "S"
+    if job_match_score(item) >= 95 and any(term in text for term in ("staff", "principal", "ai", "llm", "agent", "platform", "infra")):
+        return "A"
+    if job_match_score(item) >= 70:
+        return "A"
+    return "B"
+
+
+def format_job_decision(item: dict, rank: int) -> list[str]:
+    metrics = item.get("metrics") or {}
+    company = short(metrics.get("company") or display_name(item).split("|", 1)[0].split(" - ", 1)[0].strip(), 48)
+    role = clean_job_role(item)
+    reasons = metrics.get("job_match_reasons") or []
+    risks = metrics.get("job_match_risks") or []
+    reason_text = "、".join(reasons[:4]) if reasons else "和 Andrew 后端/AI/remote 目标有交集，需要人工确认。"
+    risk_text = "；".join(risks[:3]) if risks else "暂无明显硬伤"
+    return [
+        f"{rank}. {company}",
+        f"岗位: {role}",
+        f"预计TC: {estimate_tc(item)}",
+        f"匹配度: {job_priority(item)} / {int(job_match_score(item))}",
+        f"为什么值得投: {reason_text}",
+        f"风险: {risk_text}",
+        f"链接: {item.get('url', '')}",
+    ]
+
+
+def choose_daily_action(picks: list[dict], jobs: list[dict]) -> tuple[str, str]:
+    if jobs and job_priority(jobs[0]) in {"S", "A"}:
+        company = (jobs[0].get("metrics") or {}).get("company") or display_name(jobs[0])
+        return (
+            f"去看 {short(company, 60)}",
+            "它和 Andrew 的 Senior Backend / AI infra / remote 目标最接近，30 分钟内能判断是否值得定制简历投递。",
+        )
+    if picks:
+        name = display_name(picks[0])
+        return (
+            f"去看 {name}",
+            "它是今天商业价值最高的非岗位机会，适合判断是否值得 Fork、学习或做成创业方向。",
+        )
+    return ("整理岗位关键词", "今天没有足够强的机会，先优化搜索条件和简历关键词。")
+
+
 def build_email_body(test_results: list[StepResult], radar_result: StepResult) -> str:
     raw = latest_raw() or {"items": [], "warnings": []}
     items = raw.get("items", [])
-    warnings = raw.get("warnings", [])
     all_ok = all(result.ok for result in test_results + [radar_result])
     status = "OK" if all_ok else "ATTENTION"
-    now = datetime.now().strftime("%Y-%m-%d %H:%M")
-
-    picks = pick_research_items(items, 3)
-    best = picks[0] if picks else None
-    best_name = display_name(best) if best else "今天最值得看的项目"
-
-    body: list[str] = [
-        f"今日 AI 机会雷达（5分钟版）· {now} · {status}",
-        "",
-        "结论: 今天不是看 20 个链接，而是判断有没有值得学、值得 Fork、值得做成产品的机会。",
-        f"如果今天只能看一个: {best_name}。",
-    ]
-
-    if picks:
-        item = picks[0]
-        grade = grade_for_item(item, 1)
-        one_liner, why_lines, action_lines = opportunity_profile(item)
-        body.extend(
-            [
-                "",
-                f"今日主推 — {display_name(item)} ({grade})",
-                one_liner,
-                "",
-                "为什么值得看:",
-                *[f"- {line}" for line in why_lines],
-                "",
-                "你可以:",
-                *[f"- {line}" for line in action_lines],
-                f"投入时间: {effort_for_grade(grade)}",
-                f"链接: {item.get('url', '')}",
-            ]
-        )
-
-    if len(picks) > 1:
-        body.extend(["", "次优先:"])
-        for idx, item in enumerate(picks[1:3], 2):
-            grade = grade_for_item(item, idx)
-            one_liner, _, _ = opportunity_profile(item)
-            body.append(
-                f"{idx}. {display_name(item)} — {grade} · {short(one_liner, 72)} → {item.get('url', '')}"
-            )
-
-    explicit_jobs = pick_job_items(items, 3)
-    body.extend(["", "工作机会（按 Andrew 简历匹配）:"])
-    body.append("来源: YC Jobs / HNHIRING / RemoteOK / HN / Reddit。筛选目标: Senior Backend + Kafka/Flink + distributed systems + AWS + AI infra + remote/high comp。")
-    if explicit_jobs:
-        for idx, item in enumerate(explicit_jobs, 1):
-            body.extend(format_job_candidate(item, idx))
-    else:
-        body.append("今天没有 A/B 级匹配岗位；不是“没有岗位”，而是没有明显适合你这份简历、薪资和 remote 条件的高质量目标。")
-
-    trends = summarize_trends(items)
-    body.extend(["", "今日信号分布 (来自本次抓取):"])
-    body.extend(f"- {line}" for line in trends)
-
-    if warnings:
-        compact_warnings = [clean_warning(warning) for warning in warnings[:2]]
-        body.extend(["", "采集异常:", *[f"- {warning}" for warning in compact_warnings]])
 
     run_url = os.environ.get("GITHUB_RUN_URL")
     report_pointer = run_url or str(REPORT_PATH)
-    body.extend(["", "今天只做一件事:"])
-    if explicit_jobs:
-        top_job = explicit_jobs[0]
-        top_metrics = top_job.get("metrics") or {}
-        top_job_name = top_metrics.get("company") or display_name(top_job)
-        body.append(f"先打开工作机会 #1: {short(top_job_name, 60)}。")
-        body.append("判断: 加拿大 remote 能不能投？薪资是否够？如果够，今天就发第一封定制申请。")
+    explicit_jobs = pick_job_items(items, 3)
+    max_attention = max(0, 5 - len(explicit_jobs))
+    picks = pick_research_items(items, min(3, max_attention))
+    action, reason = choose_daily_action(picks, explicit_jobs)
+
+    body: list[str] = [
+        "# 今日 AI 机会雷达",
+        "",
+        f"状态: {status}",
+        "",
+        "## 最值得关注（最多3个）",
+    ]
+
+    if picks:
+        for idx, item in enumerate(picks, 1):
+            body.extend(["", *format_attention_item(item, idx)])
     else:
-        body.append(f"打开 {best_name}。")
-        body.append("回答: 客户是谁？怎么赚钱？你会怎么改？")
-    body.extend(["", f"完整原始报告 → {report_pointer}"])
+        body.append("")
+        body.append("今天没有超过 B 级的非岗位机会；优先看工作机会。")
+
+    body.extend(["", "## 工作机会（最多3个）"])
+    if explicit_jobs:
+        for idx, item in enumerate(explicit_jobs, 1):
+            body.extend(["", *format_job_decision(item, idx)])
+    else:
+        body.append("")
+        body.append("今天没有 A/B 级匹配岗位；不是没有岗位，而是没有明显适合 Andrew 目标的高质量远程 AI 后端机会。")
+
+    body.extend(
+        [
+            "",
+            "## 今日唯一动作",
+            "",
+            "如果今天只能花30分钟:",
+            action,
+            f"原因: {reason}",
+            "",
+            f"完整原始报告: {report_pointer}",
+        ]
+    )
     return "\n".join(body).strip() + "\n"
 
 
