@@ -124,6 +124,20 @@ class EmailDigestTest(unittest.TestCase):
     def test_format_tags_limits_count(self):
         self.assertEqual(run_and_notify.format_tags(["a", "b", "c"], limit=2), "a, b")
 
+    @patch.dict(
+        "os.environ",
+        {
+            "SMTP_PASSWORD": "abcd efgh ijkl mnop",
+            "SMTP_USER": "sender@example.com",
+            "RADAR_EMAIL_TO": "to@example.com",
+        },
+        clear=True,
+    )
+    def test_smtp_config_strips_app_password_spaces(self):
+        config = run_and_notify.smtp_config()
+
+        self.assertEqual(config["password"], "abcdefghijklmnop")
+
 
 if __name__ == "__main__":
     unittest.main()

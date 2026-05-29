@@ -18,7 +18,7 @@ Add these under:
 
 - `RADAR_EMAIL_TO`: `caishixun123@gmail.com`
 - `SMTP_USER`: Gmail sender address
-- `SMTP_PASSWORD`: Gmail 16-character App Password
+- `SMTP_PASSWORD`: Gmail 16-character App Password. Spaces are okay; the script removes whitespace before SMTP login.
 
 Optional:
 
@@ -49,6 +49,8 @@ After pushing:
 4. Click `Run workflow`.
 5. Confirm the Gmail digest arrives.
 6. Check the `radar-reports` artifact if you want the full Markdown report.
+
+If the run exits with code `3`, the digest email was not sent. Check the `Check required secrets` step first; if all secrets are present, open the `Run radar and send Gmail digest` step and look for the Gmail SMTP error.
 
 ## Notes
 

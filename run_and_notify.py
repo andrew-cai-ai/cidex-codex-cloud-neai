@@ -299,11 +299,12 @@ def build_email_body(test_results: list[StepResult], radar_result: StepResult, r
 
 
 def smtp_config() -> dict[str, str | int]:
+    smtp_password = "".join(os.environ.get("SMTP_PASSWORD", "").split())
     return {
         "host": os.environ.get("SMTP_HOST", "smtp.gmail.com"),
         "port": int(os.environ.get("SMTP_PORT", "587")),
         "user": os.environ.get("SMTP_USER", ""),
-        "password": os.environ.get("SMTP_PASSWORD", ""),
+        "password": smtp_password,
         "mail_from": os.environ.get("RADAR_EMAIL_FROM") or os.environ.get("SMTP_USER", ""),
         "mail_to": os.environ.get("RADAR_EMAIL_TO", ""),
     }

@@ -10,6 +10,9 @@ permissions:
   contents: read
   actions: write
 
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+
 jobs:
   digest:
     runs-on: ubuntu-latest
@@ -32,6 +35,23 @@ jobs:
           key: radar-seen-${{ github.run_id }}
           restore-keys: |
             radar-seen-
+
+      - name: Check required secrets
+        env:
+          RADAR_EMAIL_TO: ${{ secrets.RADAR_EMAIL_TO }}
+          SMTP_USER: ${{ secrets.SMTP_USER }}
+          SMTP_PASSWORD: ${{ secrets.SMTP_PASSWORD }}
+        run: |
+          missing=0
+          for name in RADAR_EMAIL_TO SMTP_USER SMTP_PASSWORD; do
+            if [ -z "${!name}" ]; then
+              echo "::error title=Missing secret::$name is not configured in repository Actions secrets."
+              missing=1
+            fi
+          done
+          if [ "$missing" -ne 0 ]; then
+            exit 3
+          fi
 
       - name: Run radar and send Gmail digest
         env:
