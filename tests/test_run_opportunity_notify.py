@@ -86,6 +86,7 @@ class OpportunityDigestTest(unittest.TestCase):
         self.assertIn("是否值得创业参考:", body)
         self.assertIn("优先级 / 预计商业价值:", body)
         self.assertIn("Brandfetch", body)
+        self.assertIn("AI属性:", body)
         self.assertIn("预计TC:", body)
         self.assertIn("## 今日唯一动作", body)
         self.assertNotIn("值得程度表:", body)
@@ -143,6 +144,42 @@ class OpportunityDigestTest(unittest.TestCase):
         self.assertIn("Atomic", lines[0])
         self.assertTrue(any("backend" in line for line in lines))
         self.assertTrue(any("YC Jobs" in line for line in lines))
+
+    def test_ai_job_category_separates_ai_from_backend_fit(self):
+        ai_item = {
+            "title": "Brandfetch | Senior Backend Engineer",
+            "summary": "Build MCP server, vector search, and LLM agent infrastructure.",
+            "tags": ["job", "ai"],
+        }
+        backend_item = {
+            "title": "Generic SaaS | Senior Backend Engineer",
+            "summary": "Remote Java backend APIs and billing systems.",
+            "tags": ["job"],
+        }
+
+        self.assertTrue(run_opportunity_notify.ai_job_category(ai_item).startswith("A:"))
+        self.assertTrue(run_opportunity_notify.ai_job_category(backend_item).startswith("C:"))
+
+    def test_ai_job_category_does_not_promote_customer_mentions_to_s(self):
+        item = {
+            "title": "Baseten Labs | Platform Engineer",
+            "url": "https://jobs.ashbyhq.com/baseten",
+            "summary": "Powers AI companies such as Cursor and OpenAI with inference infrastructure.",
+            "metrics": {"company": "Baseten Labs"},
+            "tags": ["job", "ai"],
+        }
+
+        self.assertTrue(run_opportunity_notify.ai_job_category(item).startswith("A:"))
+
+    def test_ai_job_category_does_not_match_rag_inside_storage(self):
+        item = {
+            "title": "Railway | Infra Engineer Storage",
+            "summary": "Distributed systems, storage, racking servers, observability.",
+            "metrics": {"company": "Railway"},
+            "tags": ["job"],
+        }
+
+        self.assertTrue(run_opportunity_notify.ai_job_category(item).startswith("C:"))
 
     def test_attention_item_has_required_decision_fields(self):
         item = SAMPLE_RAW["items"][1]

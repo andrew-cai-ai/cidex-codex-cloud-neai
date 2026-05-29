@@ -341,6 +341,62 @@ def job_match_score(item: dict) -> float:
     return float(metrics.get("job_match_score") or 0)
 
 
+def normalized_company_name(item: dict) -> str:
+    metrics = item.get("metrics") or {}
+    company = str(metrics.get("company") or display_name(item).split("|", 1)[0].split(" - ", 1)[0])
+    company = re.sub(r"https?://\S+", "", company)
+    company = re.sub(r"[^a-z0-9]+", " ", company.lower()).strip()
+    return company
+
+
+def text_has_term(text: str, term: str) -> bool:
+    term = term.lower()
+    if re.fullmatch(r"[a-z0-9#+.-]+", term):
+        return re.search(rf"(?<![a-z0-9]){re.escape(term)}(?![a-z0-9])", text) is not None
+    return term in text
+
+
+def ai_job_category(item: dict) -> str:
+    text = item_text(item)
+    company = normalized_company_name(item)
+    top_companies = {"openai", "anthropic", "cursor", "perplexity", "glean", "cohere"}
+    top_domains = ("openai.com", "anthropic.com", "cursor.com", "perplexity.ai", "glean.com", "cohere.com")
+    if company in top_companies or any(domain in str(item.get("url") or "").lower() for domain in top_domains):
+        return "S: Frontier AI / 顶级 AI 公司"
+    if any(
+        text_has_term(text, term)
+        for term in (
+            "genai",
+            "generative ai",
+            "llm",
+            "ai agent platform",
+            "agent platform",
+            "ai infrastructure",
+            "ml platform",
+            "machine learning engineer",
+            "inference",
+            "mcp server",
+            "vector search",
+            "rag",
+        )
+    ):
+        return "A: AI-native / AI Infra"
+    if any(text_has_term(text, term) for term in ("ai risk", "ai moderation", "ai tooling", "model", "automation")):
+        return "B: AI-adjacent，岗位本身更偏后端/平台"
+    return "C: 不是 AI 核心岗位，但可能适合 Andrew 的后端/平台背景"
+
+
+def ai_job_rank(item: dict) -> int:
+    category = ai_job_category(item)
+    if category.startswith("S:"):
+        return 3
+    if category.startswith("A:"):
+        return 2
+    if category.startswith("B:"):
+        return 1
+    return 0
+
+
 def job_grade(item: dict, rank: int) -> str:
     score = job_match_score(item)
     risks = " ".join((item.get("metrics") or {}).get("job_match_risks") or [])
@@ -406,7 +462,7 @@ def format_job_candidate(item: dict, rank: int) -> list[str]:
 def pick_job_items(items: list[dict], limit: int = 3) -> list[dict]:
     job_items = [item for item in top_by_tag(items, {"job"}, len(items)) if is_actionable_job(item)]
     job_items = [item for item in job_items if job_match_score(item) >= 45]
-    job_items.sort(key=lambda item: (job_match_score(item), float(item.get("score") or 0)), reverse=True)
+    job_items.sort(key=lambda item: (ai_job_rank(item), job_match_score(item), float(item.get("score") or 0)), reverse=True)
     return job_items[:limit]
 
 
@@ -502,14 +558,13 @@ def estimate_tc(item: dict) -> str:
 
 
 def job_priority(item: dict) -> str:
-    text = item_text(item)
-    top_companies = ("openai", "anthropic", "cursor", "perplexity", "glean", "cohere")
-    if any(company in text for company in top_companies):
+    category = ai_job_category(item)
+    if category.startswith("S:"):
         return "S"
-    if job_match_score(item) >= 95 and any(term in text for term in ("staff", "principal", "ai", "llm", "agent", "platform", "infra")):
+    if category.startswith("A:") and job_match_score(item) >= 70:
         return "A"
     if job_match_score(item) >= 70:
-        return "A"
+        return "B"
     return "B"
 
 
@@ -524,6 +579,7 @@ def format_job_decision(item: dict, rank: int) -> list[str]:
     return [
         f"{rank}. {company}",
         f"岗位: {role}",
+        f"AI属性: {ai_job_category(item)}",
         f"预计TC: {estimate_tc(item)}",
         f"匹配度: {job_priority(item)} / {int(job_match_score(item))}",
         f"为什么值得投: {reason_text}",
