@@ -1819,6 +1819,20 @@ def external_evidence_level(signal: dict | None, signals: list[dict]) -> str:
     return "Low"
 
 
+def markdown_item_link(item: dict) -> str:
+    name = display_name(item)
+    url = str(item.get("url") or "").strip()
+    if url.startswith(("http://", "https://")):
+        return f"[{name}]({url})"
+    return name
+
+
+def representative_links(signal: dict | None, limit: int = 3) -> list[str]:
+    if not signal:
+        return []
+    return [markdown_item_link(item) for item in (signal.get("representatives") or [])[:limit]]
+
+
 def format_single_bet(signals: list[dict]) -> list[str]:
     thesis = pick_thesis_signal(signals)
     if not thesis:
@@ -1845,14 +1859,20 @@ def format_external_evidence_level(signals: list[dict]) -> list[str]:
     if not thesis:
         return ["Level: Low", "原因: 还没有重复主题达到 Interesting。"]
     counts = thesis["counts"]
-    representatives = [display_name(item) for item in thesis.get("representatives") or []]
-    return [
+    links = representative_links(thesis, 3)
+    lines = [
         f"Level: {external_evidence_level(thesis, signals)}",
         f"Signals: 7天 {counts['7']} / 14天 {counts['14']} / 30天 {counts['30']}",
         f"Trend: {thesis['trend']}",
-        f"Representative Evidence: {', '.join(representatives) or '暂无'}",
-        f"Confidence: {thesis_confidence(thesis, signals)}",
+        "Representative Evidence:",
     ]
+    lines.extend(f"- {link}" for link in links)
+    if not links:
+        lines.append("- 暂无")
+    lines.extend([
+        f"Confidence: {thesis_confidence(thesis, signals)}",
+    ])
+    return lines
 
 
 def format_andrew_edge_v51(signals: list[dict]) -> list[str]:
@@ -1919,11 +1939,12 @@ def format_validation_plan(signals: list[dict], loop: dict) -> list[str]:
             "3. 下周再决定是否形成 Single Bet。",
         ]
     meta = topic_meta(thesis)
-    representatives = [display_name(item) for item in thesis.get("representatives") or []]
+    links = representative_links(thesis, 3)
+    fork_item = first_github_representative(thesis)
     return [
-        f"1. 阅读: {', '.join(representatives[:3]) or thesis['topic']}，只提取客户、预算、架构、失败模式。",
+        f"1. 阅读: {', '.join(links) or thesis['topic']}，只提取客户、预算、架构、失败模式。",
         f"2. 联系: 找 3 个 {meta.get('customers', 'AI/平台工程团队')} 从业者，问是否已经为这个问题付费。",
-        f"3. Fork: {display_name(first_github_representative(thesis)) if first_github_representative(thesis) else '找一个可运行样本'}，只看接口、状态、权限、可观测性。",
+        f"3. Fork: {markdown_item_link(fork_item) if fork_item else '找一个可运行样本'}，只看接口、状态、权限、可观测性。",
         f"4. 输出: 写 1 页验证结论：{thesis['topic']} 是否值得 Andrew 连续投入 30 天。",
     ]
 

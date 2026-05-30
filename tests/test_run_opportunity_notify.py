@@ -121,6 +121,8 @@ class OpportunityDigestTest(unittest.TestCase):
         self.assertIn("Internal Loop: missing weekly_update.md", body)
         self.assertIn("ROI Tracker: waiting for Andrew update", body)
         self.assertIn("填写 weekly_update.md", body)
+        self.assertIn("Representative Evidence:", body)
+        self.assertIn("](https://", body)
         self.assertIn("Generic Chatbot — Stop", body)
         self.assertIn("Thin AI Wrapper / Random SaaS — Stop", body)
         self.assertIn("先补 Internal Loop", body)
