@@ -19,6 +19,7 @@ ROOT = Path(__file__).resolve().parent
 REPORT_PATH = ROOT / "reports" / "opportunity_latest.md"
 EMAIL_LOG_PATH = ROOT / "reports" / "last_opportunity_email.txt"
 RAW_DIR = ROOT / "data" / "opportunity_raw"
+WEEKLY_UPDATE_PATH = Path("/Users/shixun.cai.-nd/Documents/Codex/opportunity_os/weekly_update.md")
 
 THEME_BOOST = {
     "agent-memory": 70,
@@ -339,6 +340,130 @@ def history_with_current(raw: dict, historical: list[dict] | None = None) -> lis
     if not any(str(snapshot.get("run_time") or id(snapshot)) == current_id for snapshot in snapshots):
         snapshots.append(raw)
     return snapshots
+
+
+def parse_weekly_update_date(text: str) -> datetime.date | None:
+    match = re.search(r"^#\s*Week\b.*?(\d{4}-\d{2}-\d{2})\s*$", text, re.M)
+    if not match:
+        return None
+    try:
+        return datetime.strptime(match.group(1), "%Y-%m-%d").date()
+    except ValueError:
+        return None
+
+
+def extract_markdown_section(text: str, heading: str) -> str:
+    pattern = rf"^##\s+{re.escape(heading)}\s*$"
+    match = re.search(pattern, text, re.M)
+    if not match:
+        return ""
+    start = match.end()
+    next_heading = re.search(r"^##\s+", text[start:], re.M)
+    end = start + next_heading.start() if next_heading else len(text)
+    return text[start:end].strip()
+
+
+def bullet_lines(section: str) -> list[str]:
+    lines: list[str] = []
+    for line in section.splitlines():
+        stripped = line.strip()
+        if not stripped.startswith("-"):
+            continue
+        value = stripped[1:].strip()
+        if value:
+            lines.append(value)
+    return lines
+
+
+def parse_invested_hours(section: str) -> dict[str, float]:
+    hours: dict[str, float] = {}
+    for line in bullet_lines(section):
+        match = re.match(r"([^:：]+)[:：]\s*([0-9]+(?:\.[0-9]+)?)\s*(?:h|hr|hrs|hour|hours|小时)?\b", line, re.I)
+        if match:
+            hours[match.group(1).strip()] = float(match.group(2))
+    return hours
+
+
+def read_internal_loop(path: Path = WEEKLY_UPDATE_PATH, today: datetime.date | None = None) -> dict:
+    today = today or datetime.now().astimezone().date()
+    if not path.exists():
+        return {
+            "status": "Missing",
+            "state_line": "Internal Loop: missing weekly_update.md",
+            "hours": {},
+            "did": [],
+            "got": [],
+            "next_action": [],
+            "roi": "Waiting",
+            "reason": "ROI Tracker: waiting for Andrew update",
+            "updated_at": None,
+        }
+
+    try:
+        text = path.read_text(encoding="utf-8")
+    except OSError:
+        return {
+            "status": "Missing",
+            "state_line": "Internal Loop: missing weekly_update.md",
+            "hours": {},
+            "did": [],
+            "got": [],
+            "next_action": [],
+            "roi": "Waiting",
+            "reason": "ROI Tracker: waiting for Andrew update",
+            "updated_at": None,
+        }
+
+    update_date = parse_weekly_update_date(text)
+    if not update_date:
+        update_date = datetime.fromtimestamp(path.stat().st_mtime).date()
+    stale = update_date < today - timedelta(days=7)
+
+    invest_section = extract_markdown_section(text, "投入")
+    did = bullet_lines(extract_markdown_section(text, "做了什么"))
+    got = bullet_lines(extract_markdown_section(text, "得到了什么"))
+    next_action = bullet_lines(extract_markdown_section(text, "下周一个最重要的行动"))
+    hours = parse_invested_hours(invest_section)
+
+    if stale:
+        roi = "Waiting"
+        reason = "ROI Tracker: waiting for Andrew update"
+        status = "Stale"
+        state_line = "Internal Loop: stale"
+    elif not hours and not did and not got:
+        roi = "Waiting"
+        reason = "ROI Tracker: waiting for Andrew update"
+        status = "Fresh"
+        state_line = "Internal Loop: fresh"
+    else:
+        total_hours = sum(hours.values())
+        has_output = bool(got)
+        if has_output and total_hours > 0:
+            roi = "High" if total_hours <= 6 else "Medium"
+            reason = "基于 weekly_update.md：本周有明确产出，且投入时间可计算。"
+        elif has_output:
+            roi = "Medium"
+            reason = "基于 weekly_update.md：有产出记录，但没有可计算投入时间。"
+        elif total_hours > 0:
+            roi = "Low"
+            reason = "基于 weekly_update.md：有投入但没有记录到明确产出。"
+        else:
+            roi = "Waiting"
+            reason = "ROI Tracker: waiting for Andrew update"
+        status = "Fresh"
+        state_line = "Internal Loop: fresh"
+
+    return {
+        "status": status,
+        "state_line": state_line,
+        "hours": hours,
+        "did": did,
+        "got": got,
+        "next_action": next_action,
+        "roi": roi,
+        "reason": reason,
+        "updated_at": update_date.isoformat() if update_date else None,
+    }
 
 
 def short(value: str, limit: int = 120) -> str:
@@ -1682,6 +1807,173 @@ def choose_v4_action(signals: list[dict], job: dict | None) -> tuple[str, str]:
     return ("NO ACTION TODAY", "没有 thesis 达到最低 conviction；保持等待。")
 
 
+def external_evidence_level(signal: dict | None, signals: list[dict]) -> str:
+    if not signal:
+        return "Low"
+    count_30 = int((signal.get("counts") or {}).get("30") or 0)
+    confidence = thesis_confidence(signal, signals)
+    if confidence == "High" and count_30 >= 10:
+        return "High"
+    if confidence in {"High", "Medium"} and count_30 >= 3:
+        return "Medium"
+    return "Low"
+
+
+def format_single_bet(signals: list[dict]) -> list[str]:
+    thesis = pick_thesis_signal(signals)
+    if not thesis:
+        return [
+            "Bet: Cash / Wait",
+            "观点: 外部信号还不足以形成未来30天押注。",
+            "Decision: Wait",
+            "Conviction: 0/10",
+        ]
+    meta = topic_meta(thesis)
+    return [
+        f"Bet: {thesis['topic']}",
+        f"观点: 未来30天默认押注 {thesis['topic']}，不是分散看一堆项目。",
+        f"为什么: {meta.get('why', thesis['action'])}",
+        f"谁会付钱: {meta.get('customers', 'AI/平台工程团队')}",
+        f"预算来源: {meta.get('budget', 'Platform budget')}",
+        f"Decision: {'Study' if conviction_score(thesis, signals) >= 8 else 'Monitor'}",
+        f"Conviction: {conviction_score(thesis, signals)}/10",
+    ]
+
+
+def format_external_evidence_level(signals: list[dict]) -> list[str]:
+    thesis = pick_thesis_signal(signals)
+    if not thesis:
+        return ["Level: Low", "原因: 还没有重复主题达到 Interesting。"]
+    counts = thesis["counts"]
+    representatives = [display_name(item) for item in thesis.get("representatives") or []]
+    return [
+        f"Level: {external_evidence_level(thesis, signals)}",
+        f"Signals: 7天 {counts['7']} / 14天 {counts['14']} / 30天 {counts['30']}",
+        f"Trend: {thesis['trend']}",
+        f"Representative Evidence: {', '.join(representatives) or '暂无'}",
+        f"Confidence: {thesis_confidence(thesis, signals)}",
+    ]
+
+
+def format_andrew_edge_v51(signals: list[dict]) -> list[str]:
+    thesis = pick_thesis_signal(signals)
+    if not thesis:
+        return ["Edge: 暂无可映射方向。"]
+    return [
+        f"Edge: {', '.join(thesis['andrew_reasons'][:5])}",
+        "为什么是 Andrew: 你的 Disney / Binance / TikTok 背景更适合做可靠平台、状态管理、吞吐、延迟和生产可观测性，而不是做低门槛 wrapper。",
+        f"Match: {thesis['andrew_match']}/100",
+    ]
+
+
+def format_internal_loop(loop: dict) -> list[str]:
+    hours = loop.get("hours") or {}
+
+    def hour_line(label: str) -> str:
+        value = hours.get(label)
+        if value is None:
+            return f"{label}: 未提供"
+        return f"{label}: {value:g}h"
+
+    got = loop.get("got") or []
+    lines = [
+        "Internal Loop:",
+        f"状态: {loop['status']}",
+        str(loop["state_line"]),
+        f"Updated: {loop.get('updated_at') or 'unknown'}",
+        "",
+        "本周投入:",
+        hour_line("Agent Infra"),
+        hour_line("Agent Security"),
+        hour_line("Job Search"),
+        hour_line("Side Project"),
+        "",
+        "本周产出:",
+    ]
+    if got:
+        lines.extend(f"- {item}" for item in got[:4])
+    else:
+        lines.append("- 未提供")
+    lines.extend(
+        [
+            "",
+            f"ROI判断: {loop['roi']}",
+            f"原因: {loop['reason']}",
+        ]
+    )
+    return lines
+
+
+def format_validation_plan(signals: list[dict], loop: dict) -> list[str]:
+    thesis = pick_thesis_signal(signals)
+    if loop["status"] != "Fresh":
+        return [
+            "1. 先补 Internal Loop：用 10 分钟填写 weekly_update.md。",
+            "2. 不做 ROI 判断，直到 Andrew 提供本周投入和产出。",
+            "3. 外部验证只保留一个问题：这个方向是否有明确企业预算？",
+        ]
+    if not thesis:
+        return [
+            "1. 暂停新项目。",
+            "2. 只收集更多外部信号。",
+            "3. 下周再决定是否形成 Single Bet。",
+        ]
+    meta = topic_meta(thesis)
+    representatives = [display_name(item) for item in thesis.get("representatives") or []]
+    return [
+        f"1. 阅读: {', '.join(representatives[:3]) or thesis['topic']}，只提取客户、预算、架构、失败模式。",
+        f"2. 联系: 找 3 个 {meta.get('customers', 'AI/平台工程团队')} 从业者，问是否已经为这个问题付费。",
+        f"3. Fork: {display_name(first_github_representative(thesis)) if first_github_representative(thesis) else '找一个可运行样本'}，只看接口、状态、权限、可观测性。",
+        f"4. 输出: 写 1 页验证结论：{thesis['topic']} 是否值得 Andrew 连续投入 30 天。",
+    ]
+
+
+def format_stop_doing_v51(job: dict | None) -> list[str]:
+    lines = [
+        "Generic Chatbot — Stop",
+        "原因: 竞争激烈、分发困难、与 Andrew 平台优势不匹配。",
+        "",
+        "Thin AI Wrapper / Random SaaS — Stop",
+        "原因: 护城河弱，容易被模型平台或现有 SaaS 吞掉。",
+        "",
+        "Broad AI Coding Wrapper — Stop",
+        "原因: 只看 infra / quality / security / governance，不做普通壳。",
+        "",
+        "Low-Confidence AI-Adjacent Jobs — Stop",
+        "原因: 没有 AI-native 证据、没有高薪证据、没有 Staff/Senior Staff remote 证据，不定制简历。",
+    ]
+    if job and job_decision(job) == "Watchlist":
+        company = short((job.get("metrics") or {}).get("company") or display_name(job), 50)
+        lines.extend(["", f"当前例子: {company} 是 Watchlist，不是 Apply。"])
+    return lines
+
+
+def choose_v51_action(signals: list[dict], job: dict | None, loop: dict) -> tuple[str, str]:
+    if loop["status"] == "Missing":
+        return (
+            "填写 weekly_update.md",
+            "Internal Loop 缺失；没有 Andrew 的投入/产出数据，就不能形成真实 ROI 闭环。",
+        )
+    if loop["status"] == "Stale":
+        return (
+            "更新 weekly_update.md",
+            "Internal Loop 已过期；先更新本周投入和产出，再判断下一步。",
+        )
+    if job and job_decision(job) == "Apply Now":
+        company = short((job.get("metrics") or {}).get("company") or display_name(job), 60)
+        return (
+            f"确认并投递 {company}",
+            "岗位达到 Apply Now，但仍必须先确认薪资、远程范围和 AI-native 证据。",
+        )
+    thesis = pick_thesis_signal(signals)
+    if thesis:
+        return (
+            f"验证 Single Bet: {thesis['topic']}",
+            f"外部 conviction={conviction_score(thesis, signals)}/10；今天只验证客户预算和 Andrew 能否切入。",
+        )
+    return ("NO ACTION TODAY", "外部信号和内部数据都不足，不要为了行动而行动。")
+
+
 def development_difficulty(item: dict | None) -> str:
     if not item:
         return "未知"
@@ -1914,32 +2206,40 @@ def build_email_body(test_results: list[StepResult], radar_result: StepResult) -
     items = raw.get("items", [])
     snapshots = history_with_current(raw)
     repeated_signals = build_repeated_signals(snapshots)
+    internal_loop = read_internal_loop()
     all_ok = all(result.ok for result in test_results + [radar_result])
     status = "OK" if all_ok else "ATTENTION"
 
     run_url = os.environ.get("GITHUB_RUN_URL")
     report_pointer = run_url or str(REPORT_PATH)
     job = pick_best_job(items)
+    action, reason = choose_v51_action(repeated_signals, job, internal_loop)
 
     body: list[str] = [
-        "# Andrew Opportunity OS V4",
+        "# Andrew Opportunity OS V5.1",
         "",
         f"状态: {status}",
         "",
-        "## 1. Andrew Thesis",
+        "## 1. Single Bet",
     ]
-    body.extend(format_andrew_thesis(repeated_signals))
-    body.extend(["", "## 2. Capital Allocation"])
-    body.extend(format_capital_allocation(repeated_signals, job))
-    body.extend(["", "## 3. Top Signals"])
-    body.extend(format_top_signals_v4(repeated_signals, 3))
-    body.extend(["", "## 4. Ignore List"])
-    body.extend(format_ignore_list(repeated_signals, job))
-    body.extend(["", "## 5. 7-Day Action Plan"])
-    body.extend(format_action_plan(repeated_signals, job))
+    body.extend(format_single_bet(repeated_signals))
+    body.extend(["", "## 2. External Evidence Level"])
+    body.extend(format_external_evidence_level(repeated_signals))
+    body.extend(["", "## 3. Andrew Edge"])
+    body.extend(format_andrew_edge_v51(repeated_signals))
+    body.extend(["", "## 4. Internal Loop"])
+    body.extend(format_internal_loop(internal_loop))
+    body.extend(["", "## 5. Validation Plan"])
+    body.extend(format_validation_plan(repeated_signals, internal_loop))
+    body.extend(["", "## 6. Stop Doing"])
+    body.extend(format_stop_doing_v51(job))
 
     body.extend(
         [
+            "",
+            "## 7. 今日唯一行动",
+            action,
+            f"原因: {reason}",
             "",
             f"完整原始报告: {report_pointer}",
         ]

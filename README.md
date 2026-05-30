@@ -102,15 +102,38 @@ python3 run_opportunity_notify.py
 - `reports/opportunity_latest.md`
 - `reports/last_opportunity_email.txt`
 
-邮件控制在 5 分钟内读完，V4 把趋势雷达升级为 Andrew 的 AI Investment Committee：
+邮件控制在 5 分钟内读完，V5.1 把外部机会判断和 Andrew 的内部投入/产出闭环合在一起：
 
-- Andrew Thesis：必须形成未来 6-24 个月最值得关注的观点，说明为什么、谁付钱、预算来源、为什么现在出现、Andrew 优势、Conviction 和 Confidence。
-- Capital Allocation：把 Andrew 未来 30 天时间当成资金，给出投入比例和理由。
-- Top Signals：不只列次数，还输出 Conviction Score 和 Decision。
-- Ignore List：明确未来 30 天不要投入什么，例如 Generic Chatbot、Thin AI Wrapper、Random SaaS、低证据 AI-adjacent 岗位。
-- 7-Day Action Plan：给出阅读、Fork、联系、申请和验证目标，不输出泛泛的“研究一下”。
+- Single Bet：只给一个未来 30 天默认押注方向。
+- External Evidence Level：只基于外部 7 / 14 / 30 天重复信号判断。
+- Andrew Edge：说明为什么这个方向适合 Andrew。
+- Internal Loop：固定读取 `/Users/shixun.cai.-nd/Documents/Codex/opportunity_os/weekly_update.md`，只基于 Andrew 填写的内容判断投入、产出和 ROI。
+- Validation Plan：如果 Internal Loop 缺失或过期，优先补内部输入；不编造 ROI。
+- Stop Doing：明确停止 Generic Chatbot、Thin AI Wrapper、Random SaaS、低证据 AI-adjacent 岗位。
+- 今日唯一行动：只给一个动作；没有内部数据时，优先填写或更新 `weekly_update.md`。
 
-V4 当前追踪的主题包括 Agent Memory、Agent Infrastructure、Evaluation、AI Coding、Voice Agents、Browser Agents、Agent Search、Agent Security。趋势统计会排除 job-board 数据，避免岗位描述污染需求判断；同一个 URL / item 在多次运行里只计一次。
+`weekly_update.md` 极简格式：
+
+```markdown
+# Week [N] — [YYYY-MM-DD]
+
+## 投入
+- Agent Infra: Xh
+- Agent Security: Xh
+- Job Search: Xh
+- Side Project: Xh
+
+## 做了什么
+-
+
+## 得到了什么
+-
+
+## 下周一个最重要的行动
+-
+```
+
+V5.1 当前追踪的外部主题包括 Agent Memory、Agent Infrastructure、Evaluation、AI Coding、Voice Agents、Browser Agents、Agent Search、Agent Security。趋势统计会排除 job-board 数据，避免岗位描述污染需求判断；同一个 URL / item 在多次运行里只计一次。
 
 岗位判断规则：
 

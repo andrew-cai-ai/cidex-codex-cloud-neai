@@ -1,4 +1,6 @@
 import unittest
+from pathlib import Path
+from tempfile import TemporaryDirectory
 from unittest.mock import patch
 
 import run_opportunity_notify
@@ -81,37 +83,49 @@ SAMPLE_RAW = {
 
 class OpportunityDigestTest(unittest.TestCase):
     def test_editorial_digest_has_conclusion_and_one_action(self):
+        missing_loop = {
+            "status": "Missing",
+            "state_line": "Internal Loop: missing weekly_update.md",
+            "hours": {},
+            "did": [],
+            "got": [],
+            "next_action": [],
+            "roi": "Waiting",
+            "reason": "ROI Tracker: waiting for Andrew update",
+            "updated_at": None,
+        }
         with (
             patch("run_opportunity_notify.latest_raw", return_value=SAMPLE_RAW),
             patch("run_opportunity_notify.load_historical_raws", return_value=[SAMPLE_RAW]),
+            patch("run_opportunity_notify.read_internal_loop", return_value=missing_loop),
         ):
             body = run_opportunity_notify.build_email_body(
                 [run_opportunity_notify.StepResult("compile", True, "")],
                 run_opportunity_notify.StepResult("opportunity-radar", True, ""),
             )
 
-        self.assertIn("# Andrew Opportunity OS V4", body)
-        self.assertIn("## 1. Andrew Thesis", body)
-        self.assertIn("## 2. Capital Allocation", body)
-        self.assertIn("## 3. Top Signals", body)
-        self.assertIn("## 4. Ignore List", body)
-        self.assertIn("## 5. 7-Day Action Plan", body)
+        self.assertIn("# Andrew Opportunity OS V5.1", body)
+        self.assertIn("## 1. Single Bet", body)
+        self.assertIn("## 2. External Evidence Level", body)
+        self.assertIn("## 3. Andrew Edge", body)
+        self.assertIn("## 4. Internal Loop", body)
+        self.assertIn("## 5. Validation Plan", body)
+        self.assertIn("## 6. Stop Doing", body)
+        self.assertIn("## 7. 今日唯一行动", body)
         self.assertIn("OpenHive", body)
-        self.assertIn("未来6-24个月最值得关注:", body)
         self.assertIn("谁会付钱:", body)
         self.assertIn("预算来源:", body)
-        self.assertIn("为什么现在出现:", body)
         self.assertIn("Conviction:", body)
         self.assertIn("Confidence:", body)
         self.assertIn("Agent Memory", body)
-        self.assertIn("未来30天投入比例:", body)
-        self.assertIn("Generic Chatbot — Ignore", body)
-        self.assertIn("Thin AI Wrapper / Random SaaS — Ignore", body)
-        self.assertIn("阅读:", body)
-        self.assertIn("Fork:", body)
-        self.assertIn("联系:", body)
-        self.assertIn("申请:", body)
-        self.assertIn("目标:", body)
+        self.assertIn("Internal Loop: missing weekly_update.md", body)
+        self.assertIn("ROI Tracker: waiting for Andrew update", body)
+        self.assertIn("填写 weekly_update.md", body)
+        self.assertIn("Generic Chatbot — Stop", body)
+        self.assertIn("Thin AI Wrapper / Random SaaS — Stop", body)
+        self.assertIn("先补 Internal Loop", body)
+        self.assertNotIn("## 2. Capital Allocation", body)
+        self.assertNotIn("## 3. Top Signals", body)
         self.assertNotIn("## 今日工作机会", body)
         self.assertNotIn("## 今日创业机会", body)
         self.assertNotIn("## 今日唯一动作", body)
@@ -274,6 +288,69 @@ class OpportunityDigestTest(unittest.TestCase):
 
         self.assertEqual(action, "NO ACTION TODAY")
         self.assertIn("没有重复信号", reason)
+
+    def test_internal_loop_missing_waits_for_update(self):
+        with TemporaryDirectory() as tmp:
+            loop = run_opportunity_notify.read_internal_loop(Path(tmp) / "weekly_update.md")
+
+        self.assertEqual(loop["status"], "Missing")
+        self.assertEqual(loop["state_line"], "Internal Loop: missing weekly_update.md")
+        self.assertEqual(loop["roi"], "Waiting")
+        self.assertIn("waiting for Andrew update", loop["reason"])
+
+    def test_internal_loop_fresh_parses_hours_and_outputs(self):
+        content = """# Week 22 — 2026-05-30
+
+## 投入
+- Agent Infra: 3h
+- Agent Security: 1.5h
+- Job Search: 1h
+- Side Project: 0h
+
+## 做了什么
+- Read three Agent Infra repos
+
+## 得到了什么
+- One useful architecture note
+
+## 下周一个最重要的行动
+- Talk to 3 AI platform engineers
+"""
+        with TemporaryDirectory() as tmp:
+            path = Path(tmp) / "weekly_update.md"
+            path.write_text(content, encoding="utf-8")
+            loop = run_opportunity_notify.read_internal_loop(path, today=run_opportunity_notify.datetime(2026, 5, 30).date())
+
+        self.assertEqual(loop["status"], "Fresh")
+        self.assertEqual(loop["hours"]["Agent Infra"], 3)
+        self.assertEqual(loop["hours"]["Agent Security"], 1.5)
+        self.assertEqual(loop["roi"], "High")
+        self.assertIn("One useful architecture note", loop["got"])
+
+    def test_internal_loop_stale_does_not_invent_roi(self):
+        content = """# Week 21 — 2026-05-01
+
+## 投入
+- Agent Infra: 3h
+
+## 做了什么
+- Old work
+
+## 得到了什么
+- Old result
+
+## 下周一个最重要的行动
+- Old action
+"""
+        with TemporaryDirectory() as tmp:
+            path = Path(tmp) / "weekly_update.md"
+            path.write_text(content, encoding="utf-8")
+            loop = run_opportunity_notify.read_internal_loop(path, today=run_opportunity_notify.datetime(2026, 5, 30).date())
+
+        self.assertEqual(loop["status"], "Stale")
+        self.assertEqual(loop["state_line"], "Internal Loop: stale")
+        self.assertEqual(loop["roi"], "Waiting")
+        self.assertIn("waiting for Andrew update", loop["reason"])
 
     def test_repeated_signals_count_7_14_30_day_windows(self):
         now = "2026-05-30T12:00:00+00:00"
