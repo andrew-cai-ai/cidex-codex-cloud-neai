@@ -76,6 +76,15 @@ PAIN_TOPICS = [
     },
 ]
 
+S_TIER_COMPANIES = {
+    "openai": "OpenAI",
+    "anthropic": "Anthropic",
+    "cursor": "Cursor",
+    "perplexity": "Perplexity",
+    "glean": "Glean",
+    "cohere": "Cohere",
+}
+
 
 def run_self_tests() -> list[StepResult]:
     return [
@@ -400,9 +409,8 @@ def text_has_term(text: str, term: str) -> bool:
 def ai_job_category(item: dict) -> str:
     text = item_text(item)
     company = normalized_company_name(item)
-    top_companies = {"openai", "anthropic", "cursor", "perplexity", "glean", "cohere"}
     top_domains = ("openai.com", "anthropic.com", "cursor.com", "perplexity.ai", "glean.com", "cohere.com")
-    if company in top_companies or any(domain in str(item.get("url") or "").lower() for domain in top_domains):
+    if company in S_TIER_COMPANIES or any(domain in str(item.get("url") or "").lower() for domain in top_domains):
         return "S: Frontier AI / 顶级 AI 公司"
     if any(
         text_has_term(text, term)
@@ -430,12 +438,14 @@ def ai_job_category(item: dict) -> str:
 
 
 def company_type(item: dict) -> str:
-    category = ai_job_category(item)
-    if category.startswith("S:") or category.startswith("A:"):
-        return "AI Native"
-    if category.startswith("B:"):
-        return "AI First"
     text = item_text(item)
+    company = normalized_company_name(item)
+    if company in S_TIER_COMPANIES:
+        return "AI Native"
+    if any(text_has_term(text, term) for term in ("ai platform", "ai risk decisioning", "genai", "machine learning platform", "inference platform", "agent platform")):
+        return "AI First"
+    if any(text_has_term(text, term) for term in ("llm", "ai agent", "mcp", "vector search", "ai moderation", "ai tooling", "model")):
+        return "AI Adjacent"
     if any(text_has_term(text, term) for term in ("ai", "llm", "agent", "machine learning", "model")):
         return "AI Adjacent"
     return "Traditional SaaS"
@@ -636,7 +646,9 @@ def startup_decision(item: dict | None) -> str:
     paid = paying_signal(item)
     if value == "A" and score >= 90 and paid == "有付费信号":
         return "Copy"
-    if value in {"A", "B"} and score >= 40:
+    if value == "A" and score >= 35:
+        return "Study"
+    if value == "B" and score >= 45:
         return "Study"
     return "Ignore"
 
@@ -649,7 +661,7 @@ def open_source_decision(item: dict | None) -> str:
     value = commercial_value(item)
     score = andrew_score(item)
     text = item_text(item)
-    if value == "A" and score >= 60 and any(text_has_term(text, term) for term in ("agent", "mcp", "cli", "developer", "code", "search")):
+    if value == "A" and score >= 45 and any(text_has_term(text, term) for term in ("agent", "mcp", "cli", "developer", "code", "search")):
         return "Fork"
     if value in {"A", "B"} and score >= 35:
         return "Bookmark"
@@ -692,15 +704,111 @@ def estimate_tc(item: dict) -> str:
         return str(salary)
     if salary_max:
         return f"最高约 ${salary_max:,}"
+    return "Unknown（当前抓取材料没有薪资证据；不能假设 >$300k）"
+
+
+def detected_terms(item: dict, terms: tuple[str, ...]) -> list[str]:
+    text = item_text(item)
+    found: list[str] = []
+    for term in terms:
+        if text_has_term(text, term) and term not in found:
+            found.append(term)
+    return found
+
+
+def company_type_evidence(item: dict) -> str:
+    ctype = company_type(item)
+    company = normalized_company_name(item)
+    if company in S_TIER_COMPANIES:
+        return f"公司名命中 S级 AI 公司: {S_TIER_COMPANIES[company]}"
+    if ctype == "AI First":
+        terms = detected_terms(
+            item,
+            (
+                "ai platform",
+                "ai risk decisioning",
+                "genai",
+                "machine learning platform",
+                "inference platform",
+                "agent platform",
+            ),
+        )
+        return f"公司/JD 明确 AI-first 信号: {', '.join(terms[:4]) or 'AI platform'}"
+    if ctype == "AI Adjacent":
+        terms = detected_terms(item, ("llm", "ai agent", "mcp", "vector search", "ai moderation", "ai tooling", "model", "ai"))
+        return f"只有 AI-adjacent 信号: {', '.join(terms[:4]) or 'AI keyword'}"
+    return "未看到 AI-native 或 AI-first 证据"
+
+
+def role_type_evidence(item: dict) -> str:
+    rtype = role_type(item)
+    terms = detected_terms(
+        item,
+        (
+            "ai infrastructure",
+            "inference",
+            "mcp",
+            "vector search",
+            "platform infrastructure",
+            "machine learning",
+            "ml platform",
+            "agent platform",
+            "ai agent",
+            "data platform",
+            "kafka",
+            "flink",
+            "streaming",
+            "real-time",
+            "backend",
+            "api",
+            "java",
+            "microservices",
+            "serverless",
+        ),
+    )
+    if rtype == "Other":
+        return "JD 没有清晰命中 AI infra / ML systems / data platform / backend"
+    return f"Role Type={rtype}，JD/标题信号: {', '.join(terms[:5]) or clean_job_role(item)}"
+
+
+def salary_evidence(item: dict) -> str:
+    metrics = item.get("metrics") or {}
+    salary = metrics.get("salary") or ""
+    salary_max = int(metrics.get("salary_max_detected") or metrics.get("salary_max") or 0)
+    if salary:
+        return f"薪资字段写明: {salary}"
+    if salary_max:
+        return f"JD/来源可解析薪资上限: ${salary_max:,}"
+    return "未发现薪资字段或可解析区间"
+
+
+def job_evidence(item: dict) -> list[str]:
+    metrics = item.get("metrics") or {}
+    source = metrics.get("source_name") or item.get("source") or "unknown"
+    evidence = [
+        f"Source: {source}",
+        company_type_evidence(item),
+        role_type_evidence(item),
+        f"TC evidence: {salary_evidence(item)}",
+    ]
+    summary = short(str(item.get("summary") or ""), 120)
+    if summary:
+        evidence.insert(1, f"JD/company intro: {summary}")
+    url = item.get("url") or ""
+    if url:
+        evidence.append(f"URL: {url}")
+    return evidence[:6]
+
+
+def job_confidence(item: dict) -> str:
     ctype = company_type(item)
     rtype = role_type(item)
-    if ctype == "AI Native" and rtype in {"AI Infra", "ML Systems", "Agent Platform"}:
-        return "$250k-$450k USD（未公开，按 AI infra/agent senior 市场估算）"
-    if ctype in {"AI Native", "AI First"} and rtype in {"Backend", "Data Platform"}:
-        return "$200k-$350k USD（未公开，需确认 equity）"
-    if ctype == "AI Adjacent":
-        return "$170k-$280k USD（未公开，偏平台/后端估算）"
-    return "$140k-$240k USD（未公开，普通 SaaS 后端估算）"
+    tc_known = not estimate_tc(item).startswith("Unknown")
+    if ctype in {"AI Native", "AI First"} and rtype != "Other" and tc_known:
+        return "High"
+    if ctype in {"AI Native", "AI First", "AI Adjacent"} and rtype != "Other":
+        return "Medium"
+    return "Low"
 
 
 def job_priority(item: dict) -> str:
@@ -726,9 +834,12 @@ def job_decision(item: dict | None) -> str:
         return "Watchlist"
     if salary_max and salary_max < 180000:
         return "Watchlist"
-    if ctype in {"AI Native", "AI First"} and rtype in {"AI Infra", "ML Systems", "Agent Platform", "Data Platform", "Backend"} and score >= 80:
+    strong_role = rtype in {"AI Infra", "ML Systems", "Agent Platform", "Data Platform", "Backend"}
+    if ctype == "AI Native" and strong_role and score >= 85:
         return "Apply Now"
-    if ctype == "AI Adjacent" and score >= 90 and rtype in {"Data Platform", "Backend", "AI Infra"}:
+    if ctype == "AI First" and strong_role and score >= 85 and salary_max >= 250000:
+        return "Apply Now"
+    if ctype in {"AI First", "AI Adjacent"} and score >= 70 and rtype in {"Data Platform", "Backend", "AI Infra", "ML Systems", "Agent Platform"}:
         return "Watchlist"
     return "Ignore"
 
@@ -845,7 +956,7 @@ def pick_best_startup(items: list[dict]) -> dict | None:
         for item in items
         if not is_github_url(item) and is_startup_candidate(item)
     ]
-    return max(candidates, key=andrew_score, default=None)
+    return max(candidates, key=lambda item: (decision_rank(startup_decision(item)), andrew_score(item)), default=None)
 
 
 def pick_best_open_source(items: list[dict]) -> dict | None:
@@ -854,7 +965,7 @@ def pick_best_open_source(items: list[dict]) -> dict | None:
         for item in items
         if item.get("source_type") != "job-board" and (is_github_url(item) or item.get("source_type") == "github-trending")
     ]
-    return max(candidates, key=andrew_score, default=None)
+    return max(candidates, key=lambda item: (decision_rank(open_source_decision(item)), andrew_score(item)), default=None)
 
 
 def pain_point_score(items: list[dict]) -> dict:
@@ -914,26 +1025,85 @@ def recommendation_grade(score: int) -> str:
     return "C"
 
 
-def format_job_os(job: dict | None) -> list[str]:
-    if not job:
-        return ["Decision: Ignore", "原因: 今天没有达到 Andrew 标准的 AI/AI infra 岗位。"]
+def s_tier_company_key(item: dict) -> str | None:
+    metrics = item.get("metrics") or {}
+    company = normalized_company_name({"metrics": {"company": metrics.get("company") or display_name(item)}})
+    first_word = company.split(" ", 1)[0] if company else ""
+    if company in S_TIER_COMPANIES:
+        return company
+    if first_word in S_TIER_COMPANIES:
+        return first_word
+    return None
+
+
+def opportunity_competition(selected: dict | None, items: list[dict]) -> list[str]:
+    target_names = "/".join(S_TIER_COMPANIES.values())
+    jobs = [item for item in top_by_tag(items, {"job"}, len(items)) if is_actionable_job(item)]
+    captured_targets = [item for item in jobs if s_tier_company_key(item)]
+    if not captured_targets:
+        if not selected:
+            return [f"S级目标 {target_names}: 今天抓取源未捕获可投岗位；这不是官网全网结论。"]
+        decision = job_decision(selected)
+        if decision == "Apply Now":
+            return [
+                f"S级目标 {target_names}: 今天抓取源未捕获可投岗位；这不是官网全网结论。",
+                "为什么今天推荐它: 在已抓取候选里，它有明确 AI-first/role/匹配证据，达到 Apply Now。",
+            ]
+        return [
+            f"S级目标 {target_names}: 今天抓取源未捕获可投岗位；这不是官网全网结论。",
+            f"为什么不是今天唯一投递: 当前候选只是已抓取来源里的最好观察对象，Decision={decision}，不占用投递名额。",
+        ]
+
+    captured_targets.sort(key=lambda item: (job_decision(item) == "Apply Now", job_match_score(item)), reverse=True)
+    names = ", ".join(
+        short((item.get("metrics") or {}).get("company") or display_name(item), 28)
+        for item in captured_targets[:3]
+    )
+    selected_key = s_tier_company_key(selected) if selected else None
+    if selected_key:
+        return [
+            f"S级候选已捕获: {names}",
+            "为什么它赢: 它在 S级候选里当前匹配度最高，且证据链足够进入今日决策。",
+        ]
+    return [
+        f"S级候选已捕获: {names}",
+        "为什么不是它们: 今日抓取到的 S级候选匹配度/地区/角色证据弱于当前候选；需要人工复核官网。",
+    ]
+
+
+def format_job_os(job: dict | None, items: list[dict] | None = None) -> list[str]:
+    items = items or []
+    if not job or job_decision(job) == "Ignore":
+        lines = ["工作: 无", "Decision: Ignore", "原因: 今天没有达到 Andrew 标准的 AI/AI infra 岗位。", "Opportunity Competition:"]
+        lines.extend(f"- {line}" for line in opportunity_competition(None, items))
+        return lines
     metrics = job.get("metrics") or {}
     company = short(metrics.get("company") or display_name(job), 48)
-    return [
+    lines = [
         f"公司: {company}",
         f"岗位: {clean_job_role(job)}",
         f"Company Type: {company_type(job)}",
         f"Role Type: {role_type(job)}",
         f"TC Estimate: {estimate_tc(job)}",
-        f"Andrew Score: {andrew_score(job)}",
-        f"Decision: {job_decision(job)}",
-        f"Reason: {'、'.join((metrics.get('job_match_reasons') or [])[:4]) or '和 Andrew 背景匹配不足'}",
-        f"链接: {job.get('url', '')}",
+        "Evidence:",
     ]
+    lines.extend(f"- {line}" for line in job_evidence(job))
+    lines.extend(
+        [
+            f"Confidence: {job_confidence(job)}",
+            f"Andrew Score: {andrew_score(job)}",
+            f"Decision: {job_decision(job)}",
+            f"Reason: {'、'.join((metrics.get('job_match_reasons') or [])[:4]) or '和 Andrew 背景匹配不足'}",
+            "Opportunity Competition:",
+        ]
+    )
+    lines.extend(f"- {line}" for line in opportunity_competition(job, items))
+    lines.append(f"链接: {job.get('url', '')}")
+    return lines
 
 
 def format_startup_os(item: dict | None) -> list[str]:
-    if not item:
+    if not item or startup_decision(item) == "Ignore":
         return ["Decision: Ignore", "原因: 今天没有明确创业机会。"]
     one_liner, why_lines, _ = opportunity_profile(item)
     if one_liner.startswith("可能是") or one_liner.startswith("雷达认为"):
@@ -967,7 +1137,7 @@ def user_group_for_item(item: dict | None) -> str:
 
 
 def format_open_source_os(item: dict | None) -> list[str]:
-    if not item:
+    if not item or open_source_decision(item) == "Ignore":
         return ["Decision: Ignore", "原因: 今天没有明确开源机会。"]
     one_liner, _, action_lines = opportunity_profile(item)
     if one_liner.startswith("可能是") or one_liner.startswith("雷达认为"):
@@ -1020,7 +1190,7 @@ def build_email_body(test_results: list[StepResult], radar_result: StepResult) -
         "",
         "## 今日唯一工作机会",
     ]
-    body.extend(format_job_os(job))
+    body.extend(format_job_os(job, items))
     body.extend(["", "## 今日唯一创业机会"])
     body.extend(format_startup_os(startup))
     body.extend(["", "## 今日唯一开源机会"])
@@ -1044,42 +1214,46 @@ def build_email_body(test_results: list[StepResult], radar_result: StepResult) -
 
 
 def choose_os_action(job: dict | None, startup: dict | None, open_source: dict | None, pain: dict) -> tuple[str, str]:
-    candidates: list[tuple[int, str, str]] = []
+    candidates: list[tuple[int, int, str, str]] = []
     if job and job_decision(job) == "Apply Now":
         candidates.append(
             (
+                4,
                 andrew_score(job) + 80,
                 f"研究/投递 {short((job.get('metrics') or {}).get('company') or display_name(job), 60)}",
                 "Decision 是 Apply Now，且公司/角色与 Andrew 的 AI infra 和后端背景匹配。",
             )
         )
-    if startup and startup_decision(startup) in {"Study", "Copy"}:
-        candidates.append(
-            (
-                andrew_score(startup) + (40 if startup_decision(startup) == "Copy" else 20),
-                f"研究 {display_name(startup)}",
-                f"Decision 是 {startup_decision(startup)}，需要验证客户和付费信号。",
-            )
-        )
-    if open_source and open_source_decision(open_source) == "Fork":
-        candidates.append(
-            (
-                andrew_score(open_source) + 30,
-                f"Fork/clone {display_name(open_source)}",
-                "Decision 是 Fork，能帮助 Andrew 拆 AI 工具/infra 可复用能力。",
-            )
-        )
     if int(pain["count"]) >= 3:
         candidates.append(
             (
+                3,
                 int(pain["count"]) * 20,
                 f"验证痛点: {pain['name']}",
                 "需求重复出现，优先确认用户是否愿意为解决方案付费。",
             )
         )
+    if open_source and open_source_decision(open_source) == "Fork":
+        candidates.append(
+            (
+                2,
+                andrew_score(open_source) + 30,
+                f"Fork/clone {display_name(open_source)}",
+                "Decision 是 Fork，能帮助 Andrew 拆 AI 工具/infra 可复用能力。",
+            )
+        )
+    if startup and startup_decision(startup) in {"Study", "Copy"}:
+        candidates.append(
+            (
+                1,
+                andrew_score(startup) + (40 if startup_decision(startup) == "Copy" else 20),
+                f"研究 {display_name(startup)}",
+                f"Decision 是 {startup_decision(startup)}，需要验证客户和付费信号。",
+            )
+        )
     if not candidates:
-        return ("忽略今日全部机会", "没有候选达到 Apply / Study / Fork 标准，今天不应该分散注意力。")
-    _, action, reason = max(candidates, key=lambda candidate: candidate[0])
+        return ("NO ACTION TODAY", "没有候选达到 Apply / Study / Fork 标准，今天不应该分散注意力。")
+    _, _, action, reason = max(candidates, key=lambda candidate: (candidate[0], candidate[1]))
     return action, reason
 
 

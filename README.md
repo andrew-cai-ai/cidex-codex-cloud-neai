@@ -104,11 +104,18 @@ python3 run_opportunity_notify.py
 
 邮件控制在 5 分钟内读完，V2 只输出：
 
-- 今日唯一工作机会：只保留 1 个，输出 Company Type、Role Type、TC Estimate、Decision（Apply Now / Watchlist / Ignore）。
+- 今日唯一工作机会：只保留 1 个，输出 Company Type、Role Type、TC Estimate、Evidence、Confidence、Opportunity Competition、Decision（Apply Now / Watchlist / Ignore）。
 - 今日唯一创业机会：只保留 1 个，输出客户、痛点、付费信号、Andrew 优势、开发难度、市场大小、Decision（Study / Copy / Ignore）。
 - 今日唯一开源机会：只保留 1 个，输出 Fork 价值、商业化潜力、对求职/创业帮助、Decision（Fork / Bookmark / Ignore）。
 - 本周重复出现最多的需求：统计需求频率，不统计项目数量。
-- 今日唯一行动：只给一个 30 分钟动作。
+- 今日唯一行动：只给一个 30 分钟动作；如果没有候选达到标准，会明确输出 `NO ACTION TODAY`。
+
+岗位判断规则：
+
+- 不允许把关键词匹配直接当结论。公司类型、角色类型、TC 都必须给证据和置信度。
+- 没有薪资字段或可解析区间时，TC 必须输出 `Unknown`，不能假设高薪。
+- `Opportunity Competition` 会说明为什么不是 OpenAI / Anthropic / Cursor / Perplexity / Glean / Cohere；如果这些公司今天没有被抓取源捕获，会明确写成“今天抓取源未捕获”，不冒充全网结论。
+- AI Adjacent 或证据不足的岗位最多进入 Watchlist，不占用当天唯一投递名额。
 
 Andrew Score 会优先考虑 Disney / Binance / TikTok 背景、Kafka/Flink/分布式系统、后端平台经验、AI Infra / Agent / LLM 相关性；和 Andrew 无关的热闹信号会降权。
 

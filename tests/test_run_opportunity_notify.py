@@ -91,14 +91,18 @@ class OpportunityDigestTest(unittest.TestCase):
         self.assertIn("Company Type:", body)
         self.assertIn("Role Type:", body)
         self.assertIn("TC Estimate:", body)
-        self.assertIn("Decision: Apply Now", body)
+        self.assertIn("Evidence:", body)
+        self.assertIn("Confidence:", body)
+        self.assertIn("Opportunity Competition:", body)
+        self.assertIn("Decision: Watchlist", body)
+        self.assertIn("Unknown（当前抓取材料没有薪资证据", body)
         self.assertIn("Andrew Score:", body)
         self.assertIn("## 今日唯一动作", body)
         self.assertNotIn("值得程度表:", body)
         self.assertNotIn("| OpenHive |", body)
         self.assertNotIn("今日信号分布", body)
         self.assertLessEqual(body.count("链接:"), 5)
-        self.assertLess(len(body.splitlines()), 80)
+        self.assertLess(len(body.splitlines()), 95)
 
     def test_editorial_priority_prefers_agent_infrastructure(self):
         picks = run_opportunity_notify.pick_research_items(SAMPLE_RAW["items"], 3)
@@ -202,11 +206,67 @@ class OpportunityDigestTest(unittest.TestCase):
             },
         }
 
-        self.assertEqual(run_opportunity_notify.company_type(ai_job), "AI Native")
+        self.assertEqual(run_opportunity_notify.company_type(ai_job), "AI Adjacent")
         self.assertEqual(run_opportunity_notify.role_type(ai_job), "AI Infra")
-        self.assertEqual(run_opportunity_notify.job_decision(ai_job), "Apply Now")
+        self.assertTrue(run_opportunity_notify.estimate_tc(ai_job).startswith("Unknown"))
+        self.assertEqual(run_opportunity_notify.job_decision(ai_job), "Watchlist")
         self.assertEqual(run_opportunity_notify.company_type(generic_job), "Traditional SaaS")
         self.assertEqual(run_opportunity_notify.job_decision(generic_job), "Ignore")
+
+    def test_job_evidence_and_confidence_are_explicit(self):
+        item = SAMPLE_RAW["items"][-1]
+
+        evidence = "\n".join(run_opportunity_notify.job_evidence(item))
+
+        self.assertIn("Source: HNHIRING", evidence)
+        self.assertIn("JD/company intro:", evidence)
+        self.assertIn("TC evidence:", evidence)
+        self.assertEqual(run_opportunity_notify.job_confidence(item), "Medium")
+
+    def test_opportunity_competition_does_not_claim_global_absence(self):
+        item = SAMPLE_RAW["items"][-1]
+
+        lines = run_opportunity_notify.opportunity_competition(item, SAMPLE_RAW["items"])
+        text = "\n".join(lines)
+
+        self.assertIn("今天抓取源未捕获", text)
+        self.assertIn("这不是官网全网结论", text)
+        self.assertIn("不占用投递名额", text)
+
+    def test_no_action_today_is_allowed(self):
+        generic_job = {
+            "title": "Generic SaaS | Backend Engineer",
+            "source_type": "job-board",
+            "tags": ["job"],
+            "summary": "Backend APIs and billing systems.",
+            "metrics": {
+                "company": "Generic SaaS",
+                "role": "Backend Engineer",
+                "job_match_score": 80,
+            },
+        }
+        pain = {"name": "暂无明确高频痛点", "count": 0, "users": "未知", "willingness": "未知", "evidence": []}
+
+        action, reason = run_opportunity_notify.choose_os_action(generic_job, None, None, pain)
+
+        self.assertEqual(action, "NO ACTION TODAY")
+        self.assertIn("没有候选达到", reason)
+
+    def test_ai_first_without_tc_evidence_is_watchlist(self):
+        item = {
+            "title": "Oscilar | Sr Staff Software Engineer | Remote",
+            "source_type": "job-board",
+            "tags": ["job", "ai"],
+            "summary": "AI risk decisioning. GenAI agent platform. Backend Java AWS.",
+            "metrics": {
+                "company": "Oscilar",
+                "role": "Sr Staff Software Engineer",
+                "job_match_score": 110,
+            },
+        }
+
+        self.assertEqual(run_opportunity_notify.company_type(item), "AI First")
+        self.assertEqual(run_opportunity_notify.job_decision(item), "Watchlist")
 
     def test_v2_project_decisions_are_explicit(self):
         startup = SAMPLE_RAW["items"][1]
