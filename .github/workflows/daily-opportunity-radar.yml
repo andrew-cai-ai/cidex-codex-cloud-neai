@@ -2,8 +2,8 @@ name: Opportunity Radar Daily Digest
 
 on:
   schedule:
-    # 08:15 America/Toronto during daylight saving time.
-    - cron: "15 12 * * *"
+    # 09:00 America/Toronto during daylight saving time.
+    - cron: "0 13 * * *"
   workflow_dispatch:
 
 permissions:
