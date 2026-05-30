@@ -102,15 +102,15 @@ python3 run_opportunity_notify.py
 - `reports/opportunity_latest.md`
 - `reports/last_opportunity_email.txt`
 
-邮件控制在 5 分钟内读完，V3 从项目雷达升级为趋势雷达：
+邮件控制在 5 分钟内读完，V4 把趋势雷达升级为 Andrew 的 AI Investment Committee：
 
-- 今日工作机会：最多 1 个；只有达到 Apply Now 才建议投递，Watchlist 不占用当天投递名额。
-- 今日创业机会：最多 1 个；只作为具体样本，重点看它背后的需求。
-- 本周重复信号 Top3：按过去 7 / 14 / 30 天窗口统计主题，而不是统计项目列表。
-- 战略机会：只保留未来 6-24 个月值得持续关注的方向，输出市场阶段、竞争、企业需求、Andrew Advantage 和 Decision。
-- 今日唯一行动：只给一个 30 分钟动作；如果没有趋势或岗位达到标准，会明确输出 `NO ACTION TODAY`。
+- Andrew Thesis：必须形成未来 6-24 个月最值得关注的观点，说明为什么、谁付钱、预算来源、为什么现在出现、Andrew 优势、Conviction 和 Confidence。
+- Capital Allocation：把 Andrew 未来 30 天时间当成资金，给出投入比例和理由。
+- Top Signals：不只列次数，还输出 Conviction Score 和 Decision。
+- Ignore List：明确未来 30 天不要投入什么，例如 Generic Chatbot、Thin AI Wrapper、Random SaaS、低证据 AI-adjacent 岗位。
+- 7-Day Action Plan：给出阅读、Fork、联系、申请和验证目标，不输出泛泛的“研究一下”。
 
-V3 当前追踪的主题包括 Agent Memory、Agent Infrastructure、Evaluation、AI Coding、Voice Agents、Browser Agents、Agent Search、Agent Security。趋势统计会排除 job-board 数据，避免岗位描述污染需求判断；同一个 URL / item 在多次运行里只计一次。
+V4 当前追踪的主题包括 Agent Memory、Agent Infrastructure、Evaluation、AI Coding、Voice Agents、Browser Agents、Agent Search、Agent Security。趋势统计会排除 job-board 数据，避免岗位描述污染需求判断；同一个 URL / item 在多次运行里只计一次。
 
 岗位判断规则：
 

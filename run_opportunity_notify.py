@@ -208,6 +208,57 @@ TREND_TOPICS = [
     },
 ]
 
+TOPIC_THESIS_META = {
+    "agent-infrastructure": {
+        "why": "所有可落地的 agent 最终都需要 Memory、Search、Evaluation、Orchestration 和 Observability；这些不是一次性 demo，而是平台层能力。",
+        "customers": "AI-native 公司、Enterprise AI 平台团队、DevTools/平台工程团队",
+        "budget": "Platform budget / Developer productivity budget / AI transformation budget",
+        "why_now": "企业开始从单个 chatbot 转向长期运行的 agent workflow，可靠性、权限、上下文和工具调用会变成刚需。",
+    },
+    "agent-security": {
+        "why": "长期运行的 agent 会读写上下文、调用工具、连接内部系统，prompt injection 和 memory poisoning 会从理论风险变成企业采购门槛。",
+        "customers": "Enterprise AI 团队、安全团队、合规敏感行业的 AI 平台团队",
+        "budget": "Security budget / Risk budget / Platform governance budget",
+        "why_now": "agent 开始接触真实数据和真实动作，企业会要求可审计、可隔离、可回滚的安全层。",
+    },
+    "agent-memory": {
+        "why": "agent 如果不能复用上下文和经验，就会重复推理、重复踩坑、成本高且表现不稳定；memory 是长期 agent 的基础设施。",
+        "customers": "AI agent 开发者、企业 AI 平台团队、客服/销售/工程自动化团队",
+        "budget": "AI platform budget / Data platform budget / Automation budget",
+        "why_now": "agent 从短会话走向长期任务，状态管理和记忆治理开始成为真实痛点。",
+    },
+    "evaluation": {
+        "why": "AI 输出越来越多进入生产环境，企业需要知道 agent 是否稳定、是否退化、是否符合预期。",
+        "customers": "AI 应用团队、QA/平台团队、DevTools 团队",
+        "budget": "Quality budget / Observability budget / Developer productivity budget",
+        "why_now": "AI coding 和 agent 工作流扩散后，传统测试覆盖不了非确定性行为。",
+    },
+    "ai-coding": {
+        "why": "AI coding 使用量会继续增长，但普通 wrapper 竞争太强，只有 infra、质量、安全和团队治理层值得看。",
+        "customers": "工程团队、平台工程、开发者工具采购方",
+        "budget": "Developer productivity budget",
+        "why_now": "Codex/Claude Code/Cursor 已经成为日常工具，下一阶段需求会转向成本、上下文、安全和协作治理。",
+    },
+    "agent-search": {
+        "why": "agent 需要稳定获取外部和内部知识；search/retrieval 是几乎所有 agent workflow 的公共依赖。",
+        "customers": "AI 应用团队、企业知识管理团队、DevTools 公司",
+        "budget": "AI platform budget / Knowledge management budget",
+        "why_now": "agent 的答案质量越来越依赖检索质量，企业内部知识接入正在变成基础设施问题。",
+    },
+    "voice-agents": {
+        "why": "实时语音 agent 有清晰场景，但更依赖垂直行业、低延迟和运营能力，不适合现在泛化投入。",
+        "customers": "客服、销售、医疗、金融呼叫中心",
+        "budget": "Support ops budget / Sales ops budget",
+        "why_now": "实时模型和语音接口成熟后，电话/客服自动化会继续增长。",
+    },
+    "browser-agents": {
+        "why": "浏览器 agent 可以自动执行工作流，但可靠性、权限和错误恢复还早；适合监控，不适合重押。",
+        "customers": "运营团队、数据录入/后台流程密集的企业",
+        "budget": "Automation budget / Ops budget",
+        "why_now": "computer use 能力变强，但企业采用会被可靠性和权限卡住。",
+    },
+}
+
 
 def run_self_tests() -> list[StepResult]:
     return [
@@ -1303,6 +1354,80 @@ def strategic_signal_score(signal: dict) -> int:
     return int(signal.get("andrew_match") or 0) + level_bonus + competition_bonus + stage_bonus
 
 
+def thesis_signal_score(signal: dict, signals: list[dict]) -> int:
+    score = strategic_signal_score(signal)
+    if signal.get("key") == "agent-infrastructure":
+        related = {"agent-memory", "agent-search", "evaluation", "agent-security"}
+        present_related = {
+            str(other.get("key"))
+            for other in signals
+            if str(other.get("key")) in related and int((other.get("counts") or {}).get("30") or 0) > 0
+        }
+        score += len(present_related) * 12
+    if signal.get("key") == "ai-coding" and signal.get("competition") == "High":
+        score -= 12
+    return score
+
+
+def conviction_score(signal: dict, signals: list[dict] | None = None) -> int:
+    raw = thesis_signal_score(signal, signals or [signal])
+    if raw >= 135:
+        return 9
+    if raw >= 120:
+        return 8
+    if raw >= 105:
+        return 7
+    if raw >= 90:
+        return 6
+    return max(1, min(5, raw // 18))
+
+
+def thesis_confidence(signal: dict, signals: list[dict] | None = None) -> str:
+    conviction = conviction_score(signal, signals)
+    count_30 = int((signal.get("counts") or {}).get("30") or 0)
+    trend = str(signal.get("trend") or "")
+    if conviction >= 8 and count_30 >= 5 and "历史不足" not in trend:
+        return "High"
+    if conviction >= 7 and count_30 >= 3:
+        return "Medium"
+    return "Low"
+
+
+def pick_thesis_signal(signals: list[dict]) -> dict | None:
+    candidates = [
+        signal
+        for signal in signals
+        if signal.get("compounding") in {"Interesting", "Important", "Strategic"}
+        and int(signal.get("andrew_match") or 0) >= 80
+    ]
+    if not candidates:
+        return None
+    return max(candidates, key=lambda signal: thesis_signal_score(signal, signals))
+
+
+def trend_representative_score(item: dict, topic: dict) -> float:
+    text = item_text(item)
+    score = float(item.get("score") or 0)
+    for keyword in topic.get("keywords") or []:
+        if text_has_term(text, str(keyword)):
+            score += 35
+    if is_github_url(item):
+        score += 20
+    source = str(item.get("source") or "").lower()
+    title = str(item.get("title") or "").lower()
+    if "show hn" in source or "launch hn" in source or title.startswith(("show hn:", "launch hn:")):
+        score += 12
+    if any(term in text for term in ("random saas", "get 10 users", "product hunt launches")):
+        score -= 45
+    return score
+
+
+def topic_meta(signal: dict | None) -> dict:
+    if not signal:
+        return {}
+    return TOPIC_THESIS_META.get(str(signal.get("key")), {})
+
+
 def build_repeated_signals(snapshots: list[dict]) -> list[dict]:
     now_candidates = [parse_datetime(str(snapshot.get("run_time") or "")) for snapshot in snapshots]
     now = max((candidate for candidate in now_candidates if candidate), default=utc_now())
@@ -1319,7 +1444,7 @@ def build_repeated_signals(snapshots: list[dict]) -> list[dict]:
         }
         if counts["30"] == 0:
             continue
-        representatives = sorted(examples.get(key, []), key=andrew_score, reverse=True)[:3]
+        representatives = sorted(examples.get(key, []), key=lambda item: trend_representative_score(item, topic), reverse=True)[:3]
         match = andrew_match_for_topic(topic, counts)
         level = compounding_level(counts["30"])
         signals.append(
@@ -1396,6 +1521,165 @@ def format_strategic_opportunities(signals: list[dict], limit: int = 3) -> list[
             ]
         )
     return lines
+
+
+def format_andrew_thesis(signals: list[dict]) -> list[str]:
+    thesis = pick_thesis_signal(signals)
+    if not thesis:
+        return [
+            "未来6-24个月最值得关注: 暂无",
+            "观点: 当前重复信号还没有达到 Andrew 投入标准。",
+            "Confidence: Low",
+        ]
+
+    meta = topic_meta(thesis)
+    representatives = [display_name(item) for item in thesis.get("representatives") or []]
+    counts = thesis["counts"]
+    return [
+        "未来6-24个月最值得关注:",
+        f"#1 {thesis['topic']}",
+        f"为什么: {meta.get('why', thesis['action'])}",
+        f"谁会付钱: {meta.get('customers', 'AI/平台工程团队')}",
+        f"预算来源: {meta.get('budget', 'Platform budget')}",
+        f"为什么现在出现: {meta.get('why_now', 'agent 工作流从 demo 走向生产，基础设施需求开始暴露。')}",
+        f"Andrew优势: {', '.join(thesis['andrew_reasons'][:5])}",
+        f"Signals: 7天 {counts['7']} / 14天 {counts['14']} / 30天 {counts['30']}",
+        f"Conviction: {conviction_score(thesis, signals)}/10",
+        f"Confidence: {thesis_confidence(thesis, signals)}",
+        f"代表样本: {', '.join(representatives) or '暂无'}",
+    ]
+
+
+def build_capital_allocation(signals: list[dict], job: dict | None) -> list[tuple[int, str, str]]:
+    thesis = pick_thesis_signal(signals)
+    if not thesis:
+        job_pct = 30 if job and job_decision(job) == "Apply Now" else 15
+        return [
+            (job_pct, "AI Jobs", "只投 Apply Now 级别岗位；其余 Watchlist 不定制简历。"),
+            (100 - job_pct, "Cash / Wait", "趋势信号不足，保留时间，不为了忙而忙。"),
+        ]
+
+    ordered = sorted(
+        [signal for signal in signals if signal is not thesis and signal.get("compounding") != "Noise"],
+        key=lambda signal: thesis_signal_score(signal, signals),
+        reverse=True,
+    )
+    job_pct = 20 if job and job_decision(job) == "Apply Now" else 10
+    allocation: list[tuple[int, str, str]] = [
+        (45, str(thesis["topic"]), "主 thesis；未来30天默认押注方向。"),
+    ]
+    if ordered:
+        allocation.append((25, str(ordered[0]["topic"]), "第二优先级；只研究与主 thesis 有耦合的部分。"))
+    else:
+        allocation.append((25, "Thesis Deep Work", "没有第二强方向，把时间加到主 thesis 深挖。"))
+    allocation.append((job_pct, "AI Jobs", "只投 OpenAI/Anthropic/Cursor/Glean/高薪 AI infra remote；Watchlist 不投。"))
+    used = sum(percent for percent, _, _ in allocation)
+    allocation.append((100 - used, "Other", "保留给关系维护、简历微调和不可预期机会；不碰低护城河项目。"))
+    return allocation
+
+
+def format_capital_allocation(signals: list[dict], job: dict | None) -> list[str]:
+    lines = ["未来30天投入比例:"]
+    for percent, name, reason in build_capital_allocation(signals, job):
+        lines.append(f"{percent}% {name} — {reason}")
+    return lines
+
+
+def format_top_signal_v4(signal: dict, rank: int, signals: list[dict]) -> list[str]:
+    counts = signal["counts"]
+    representatives = [display_name(item) for item in signal.get("representatives") or []]
+    return [
+        f"{rank}. {signal['topic']}",
+        f"Signals: {counts['30']}（7天 {counts['7']} / 14天 {counts['14']} / 30天 {counts['30']}）",
+        f"Conviction: {conviction_score(signal, signals)}/10",
+        f"Reason: {signal['compounding']}；{signal['enterprise_demand']} enterprise demand；Andrew Match {signal['andrew_match']}/100；Competition {signal['competition']}",
+        f"代表样本: {', '.join(representatives) or '暂无'}",
+        f"Decision: {signal['decision']}",
+    ]
+
+
+def format_top_signals_v4(signals: list[dict], limit: int = 3) -> list[str]:
+    if not signals:
+        return ["暂无可用信号。"]
+    ordered = sorted(signals, key=lambda signal: thesis_signal_score(signal, signals), reverse=True)
+    lines: list[str] = []
+    for idx, signal in enumerate(ordered[:limit], 1):
+        if lines:
+            lines.append("")
+        lines.extend(format_top_signal_v4(signal, idx, signals))
+    return lines
+
+
+def format_ignore_list(signals: list[dict], job: dict | None) -> list[str]:
+    lines = [
+        "1. Generic Chatbot — Ignore",
+        "原因: 竞争激烈、分发困难、与 Andrew 的分布式系统/平台优势不匹配。",
+        "",
+        "2. Thin AI Wrapper / Random SaaS — Ignore",
+        "原因: 护城河弱，容易被模型平台或现有 SaaS 吞掉。",
+        "",
+        "3. Broad AI Coding Wrapper — Ignore",
+        "原因: AI Coding 方向只看 infra、quality、security、team governance；不做普通插件或壳。",
+        "",
+        "4. Low-Confidence AI-Adjacent Jobs — Ignore",
+        "原因: 没有 AI-native 证据、没有高薪证据、没有 Staff/Senior Staff 远程证据时，不定制简历。",
+    ]
+    if job and job_decision(job) == "Watchlist":
+        company = short((job.get("metrics") or {}).get("company") or display_name(job), 50)
+        lines.extend(["", f"当前例子: {company} 是 Watchlist，不是 Apply。"])
+    return lines
+
+
+def first_github_representative(signal: dict | None) -> dict | None:
+    if not signal:
+        return None
+    for item in signal.get("representatives") or []:
+        if is_github_url(item):
+            return item
+    return None
+
+
+def format_action_plan(signals: list[dict], job: dict | None) -> list[str]:
+    thesis = pick_thesis_signal(signals)
+    if not thesis:
+        return [
+            "未来7天:",
+            "阅读: 不新增材料；等待更多重复信号。",
+            "Fork: 无。",
+            "联系: 无。",
+            "申请: 只查 S级 AI infra remote，其他岗位不投。",
+            "目标: 保持现金仓位，不为低质量机会分心。",
+        ]
+
+    meta = topic_meta(thesis)
+    representatives = thesis.get("representatives") or []
+    reading = ", ".join(display_name(item) for item in representatives[:3]) or thesis["topic"]
+    fork_item = first_github_representative(thesis)
+    apply_line = "申请: 0 个；只把 OpenAI/Anthropic/Cursor/Glean 的 Staff/Senior AI Infra Remote 加入候选清单。"
+    if job and job_decision(job) == "Apply Now":
+        company = short((job.get("metrics") or {}).get("company") or display_name(job), 60)
+        apply_line = f"申请: 定制并投递 {company}，前提是远程范围和薪资证据确认。"
+    return [
+        "未来7天:",
+        f"阅读: {reading}；目标是提取客户、预算、架构和失败模式。",
+        f"Fork: {display_name(fork_item)} ({fork_item.get('url')})" if fork_item else "Fork: 暂无合适 GitHub 样本；先找一个可运行实现。",
+        f"联系: 找 3 个 {meta.get('customers', 'AI/平台工程')} 从业者，问他们是否已经为这个问题付费或预算归谁。",
+        apply_line,
+        f"目标: 验证 {thesis['topic']} 是否有明确企业预算，以及 Andrew 能否用后端/平台优势切进去。",
+    ]
+
+
+def choose_v4_action(signals: list[dict], job: dict | None) -> tuple[str, str]:
+    thesis = pick_thesis_signal(signals)
+    if job and job_decision(job) == "Apply Now":
+        company = short((job.get("metrics") or {}).get("company") or display_name(job), 60)
+        return (f"确认并投递 {company}", "岗位达到 Apply Now，但仍必须先确认薪资、远程范围和 AI-native 证据。")
+    if thesis:
+        return (
+            f"执行 7-Day Plan: {thesis['topic']}",
+            f"这是当前最高 conviction thesis：{conviction_score(thesis, signals)}/10；未来30天先押这里。",
+        )
+    return ("NO ACTION TODAY", "没有 thesis 达到最低 conviction；保持等待。")
 
 
 def development_difficulty(item: dict | None) -> str:
@@ -1636,32 +1920,26 @@ def build_email_body(test_results: list[StepResult], radar_result: StepResult) -
     run_url = os.environ.get("GITHUB_RUN_URL")
     report_pointer = run_url or str(REPORT_PATH)
     job = pick_best_job(items)
-    startup = pick_best_startup(items)
-    action, reason = choose_v3_action(job, startup, repeated_signals)
 
     body: list[str] = [
-        "# Andrew Opportunity OS V3",
+        "# Andrew Opportunity OS V4",
         "",
         f"状态: {status}",
         "",
-        "## 今日工作机会",
+        "## 1. Andrew Thesis",
     ]
-    body.extend(format_job_v3(job, items))
-    body.extend(["", "## 今日创业机会"])
-    body.extend(format_startup_v3(startup))
-    body.extend(["", "## 本周重复信号 Top3"])
-    body.extend(format_repeated_signals(repeated_signals, 3))
-    body.extend(["", "## 战略机会"])
-    body.extend(format_strategic_opportunities(repeated_signals, 3))
+    body.extend(format_andrew_thesis(repeated_signals))
+    body.extend(["", "## 2. Capital Allocation"])
+    body.extend(format_capital_allocation(repeated_signals, job))
+    body.extend(["", "## 3. Top Signals"])
+    body.extend(format_top_signals_v4(repeated_signals, 3))
+    body.extend(["", "## 4. Ignore List"])
+    body.extend(format_ignore_list(repeated_signals, job))
+    body.extend(["", "## 5. 7-Day Action Plan"])
+    body.extend(format_action_plan(repeated_signals, job))
 
     body.extend(
         [
-            "",
-            "## 今日唯一动作",
-            "",
-            "如果今天只能花30分钟:",
-            action,
-            f"原因: {reason}",
             "",
             f"完整原始报告: {report_pointer}",
         ]

@@ -38,6 +38,15 @@ SAMPLE_RAW = {
             "action": "look",
         },
         {
+            "id": "async-agents",
+            "title": "The Age of Async Agents – long-term memory and context reuse",
+            "url": "https://example.com/async-agents",
+            "source": "newsletter:AI",
+            "tags": ["ai", "market"],
+            "score": 66,
+            "summary": "Async agents need agent memory, context reuse, and reliable state management.",
+        },
+        {
             "id": "trailers",
             "title": "Show HN: Product Trailers – The TV Channel for Product Hunt Launches",
             "url": "https://producttrailers.xyz",
@@ -81,37 +90,42 @@ class OpportunityDigestTest(unittest.TestCase):
                 run_opportunity_notify.StepResult("opportunity-radar", True, ""),
             )
 
-        self.assertIn("# Andrew Opportunity OS V3", body)
-        self.assertIn("## 今日工作机会", body)
-        self.assertIn("## 今日创业机会", body)
-        self.assertIn("## 本周重复信号 Top3", body)
-        self.assertIn("## 战略机会", body)
+        self.assertIn("# Andrew Opportunity OS V4", body)
+        self.assertIn("## 1. Andrew Thesis", body)
+        self.assertIn("## 2. Capital Allocation", body)
+        self.assertIn("## 3. Top Signals", body)
+        self.assertIn("## 4. Ignore List", body)
+        self.assertIn("## 5. 7-Day Action Plan", body)
         self.assertIn("OpenHive", body)
-        self.assertIn("客户:", body)
-        self.assertIn("背后需求:", body)
-        self.assertIn("付费信号:", body)
-        self.assertIn("Brandfetch", body)
-        self.assertIn("Company Type:", body)
-        self.assertIn("TC Estimate:", body)
+        self.assertIn("未来6-24个月最值得关注:", body)
+        self.assertIn("谁会付钱:", body)
+        self.assertIn("预算来源:", body)
+        self.assertIn("为什么现在出现:", body)
+        self.assertIn("Conviction:", body)
         self.assertIn("Confidence:", body)
-        self.assertIn("Decision: Watchlist", body)
-        self.assertIn("Unknown（当前抓取材料没有薪资证据", body)
         self.assertIn("Agent Memory", body)
-        self.assertIn("Andrew Match:", body)
-        self.assertIn("## 今日唯一动作", body)
-        self.assertIn("NO ACTION TODAY", body)
+        self.assertIn("未来30天投入比例:", body)
+        self.assertIn("Generic Chatbot — Ignore", body)
+        self.assertIn("Thin AI Wrapper / Random SaaS — Ignore", body)
+        self.assertIn("阅读:", body)
+        self.assertIn("Fork:", body)
+        self.assertIn("联系:", body)
+        self.assertIn("申请:", body)
+        self.assertIn("目标:", body)
+        self.assertNotIn("## 今日工作机会", body)
+        self.assertNotIn("## 今日创业机会", body)
+        self.assertNotIn("## 今日唯一动作", body)
         self.assertNotIn("## 今日唯一开源机会", body)
         self.assertNotIn("值得程度表:", body)
         self.assertNotIn("| OpenHive |", body)
         self.assertNotIn("今日信号分布", body)
-        self.assertLessEqual(body.count("链接:"), 2)
         self.assertLess(len(body.splitlines()), 95)
 
     def test_editorial_priority_prefers_agent_infrastructure(self):
         picks = run_opportunity_notify.pick_research_items(SAMPLE_RAW["items"], 3)
         names = [run_opportunity_notify.display_name(item) for item in picks]
 
-        self.assertEqual(names[:3], ["OpenHive", "Search Router", "Agent Memory Guard"])
+        self.assertEqual(names[:3], ["OpenHive", "Search Router", "The Age of Async Agents"])
 
     def test_macro_hiring_discussion_is_not_actionable_job(self):
         item = {
@@ -292,6 +306,7 @@ class OpportunityDigestTest(unittest.TestCase):
     def test_v3_action_prioritizes_repeated_trend_over_project(self):
         signal = {
             "topic": "Agent Memory",
+            "key": "agent-memory",
             "counts": {"7": 3, "14": 5, "30": 5},
             "compounding": "Important",
             "andrew_match": 95,
@@ -301,6 +316,65 @@ class OpportunityDigestTest(unittest.TestCase):
 
         self.assertEqual(action, "验证趋势: Agent Memory")
         self.assertIn("Important", reason)
+
+    def test_v4_thesis_favors_agent_infrastructure_as_umbrella(self):
+        signals = [
+            {
+                "key": "agent-infrastructure",
+                "topic": "Agent Infrastructure",
+                "counts": {"7": 4, "14": 4, "30": 4},
+                "compounding": "Interesting",
+                "andrew_match": 97,
+                "competition": "Medium",
+                "stage": "Early-Mid",
+                "trend": "→ Early signal",
+                "andrew_reasons": ["Backend Platform", "Distributed Systems"],
+                "representatives": [],
+                "enterprise_demand": "Growing",
+                "decision": "Monitor",
+            },
+            {
+                "key": "agent-security",
+                "topic": "Agent Security",
+                "counts": {"7": 5, "14": 5, "30": 5},
+                "compounding": "Important",
+                "andrew_match": 97,
+                "competition": "Low-Medium",
+                "stage": "Early",
+                "trend": "→ Early signal",
+                "andrew_reasons": ["Reliability"],
+                "representatives": [],
+                "enterprise_demand": "Growing",
+                "decision": "Monitor",
+            },
+            {
+                "key": "agent-memory",
+                "topic": "Agent Memory",
+                "counts": {"7": 3, "14": 3, "30": 3},
+                "compounding": "Interesting",
+                "andrew_match": 95,
+                "competition": "Low",
+                "stage": "Early",
+                "trend": "→ Early signal",
+                "andrew_reasons": ["State Management"],
+                "representatives": [],
+                "enterprise_demand": "Growing",
+                "decision": "Monitor",
+            },
+        ]
+
+        thesis = run_opportunity_notify.pick_thesis_signal(signals)
+
+        self.assertEqual(thesis["topic"], "Agent Infrastructure")
+        self.assertGreaterEqual(run_opportunity_notify.conviction_score(thesis, signals), 8)
+
+    def test_v4_capital_allocation_sums_to_100(self):
+        signals = run_opportunity_notify.build_repeated_signals([SAMPLE_RAW])
+
+        allocation = run_opportunity_notify.build_capital_allocation(signals, None)
+
+        self.assertEqual(sum(percent for percent, _, _ in allocation), 100)
+        self.assertTrue(any(name == "AI Jobs" for _, name, _ in allocation))
 
     def test_ai_first_without_tc_evidence_is_watchlist(self):
         item = {
