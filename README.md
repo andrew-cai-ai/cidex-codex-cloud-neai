@@ -80,7 +80,7 @@ export GITHUB_TOKEN=ghp_xxx
 
 ## Opportunity Radar
 
-第二封日报会追踪工作/合作/创业/产品机会：
+第二封日报现在是 Andrew Opportunity OS：不是新闻摘要，而是每天给 Andrew 一个可执行机会决策。
 
 ```bash
 python3 opportunity_radar.py --hours 48 --max-items 25
@@ -95,11 +95,22 @@ python3 run_opportunity_notify.py
 - Product Hunt
 - YC Blog
 - AI newsletters / market feeds
+- YC Jobs / HNHIRING / RemoteOK
 
 输出：
 
 - `reports/opportunity_latest.md`
 - `reports/last_opportunity_email.txt`
+
+邮件控制在 5 分钟内读完，只输出：
+
+- 工作：1 个最值得投的 AI/AI infra 岗位，含预计 TC、AI 属性、Andrew Score。
+- 创业：1 个最值得研究的 AI 产品方向，含用户、痛点、商业模式。
+- 开源：1 个最值得 Fork 的项目，含解决的问题、Fork 价值和难度。
+- 需求：1 个高频痛点，含出现次数、用户群体、付费意愿。
+- 今日唯一行动：只给一个 30 分钟动作。
+
+Andrew Score 会优先考虑 Disney / Binance / TikTok 背景、Kafka/Flink/分布式系统、后端平台经验、AI Infra / Agent / LLM 相关性；和 Andrew 无关的热闹信号会降权。
 
 ## 怎么用报告
 

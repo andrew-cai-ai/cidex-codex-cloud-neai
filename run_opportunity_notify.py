@@ -43,6 +43,39 @@ THEME_LABELS = {
     "market": "市场",
 }
 
+PAIN_TOPICS = [
+    {
+        "name": "AI 求职/面试准备低效",
+        "keywords": ["interview", "job search", "resume", "hiring", "leetcode", "career"],
+        "users": "AI/软件工程求职者",
+        "willingness": "高",
+    },
+    {
+        "name": "Agent 记忆和上下文无法复用",
+        "keywords": ["memory", "context", "dont re-solve", "share solutions", "long-term memory"],
+        "users": "AI agent 开发者、AI infra 团队",
+        "willingness": "高",
+    },
+    {
+        "name": "Agent 搜索/检索质量不稳定",
+        "keywords": ["search", "retrieval", "rag", "web search", "knowledge graph"],
+        "users": "AI 应用团队、开发者工具团队",
+        "willingness": "中高",
+    },
+    {
+        "name": "AI coding 成本、上下文和安全不可控",
+        "keywords": ["token", "cost", "prompt injection", "memory poisoning", "security", "usage"],
+        "users": "重度使用 Codex/Claude/Cursor 的工程团队",
+        "willingness": "中高",
+    },
+    {
+        "name": "企业 AI 工作流缺少可靠基础设施",
+        "keywords": ["workflow", "automation", "platform", "infrastructure", "observability"],
+        "users": "B2B SaaS、平台工程、AI infra 团队",
+        "willingness": "高",
+    },
+]
+
 
 def run_self_tests() -> list[StepResult]:
     return [
@@ -166,6 +199,14 @@ def display_name(item: dict) -> str:
     if " — " in title:
         return title.split(" — ", 1)[0].strip()
     return short(title, 54)
+
+
+def title_detail(item: dict) -> str:
+    title = (item.get("title") or "").removeprefix("Show HN: ").removeprefix("Launch HN: ").strip()
+    for sep in (" – ", " — ", " - ", ", "):
+        if sep in title:
+            return short(title.split(sep, 1)[1], 110)
+    return short(title, 110)
 
 
 def focus_context() -> str:
@@ -370,11 +411,13 @@ def ai_job_category(item: dict) -> str:
             "generative ai",
             "llm",
             "ai agent platform",
+            "ai agent",
             "agent platform",
             "ai infrastructure",
             "ml platform",
             "machine learning engineer",
             "inference",
+            "mcp",
             "mcp server",
             "vector search",
             "rag",
@@ -604,6 +647,212 @@ def choose_daily_action(picks: list[dict], jobs: list[dict]) -> tuple[str, str]:
     return ("整理岗位关键词", "今天没有足够强的机会，先优化搜索条件和简历关键词。")
 
 
+def andrew_score(item: dict) -> int:
+    text = item_text(item)
+    score = int(float(item.get("score") or 0) // 2)
+    if "job" in item.get("tags", []):
+        score += int(job_match_score(item))
+        score += ai_job_rank(item) * 25
+    for term in (
+        "backend",
+        "distributed systems",
+        "streaming",
+        "real-time",
+        "kafka",
+        "flink",
+        "aws",
+        "platform",
+        "infrastructure",
+        "agent",
+        "llm",
+        "mcp",
+        "retrieval",
+        "vector search",
+    ):
+        if text_has_term(text, term):
+            score += 8
+    if "product-launch" in detect_themes(text):
+        score -= 12
+    return max(0, score)
+
+
+def pick_best_startup(items: list[dict]) -> dict | None:
+    blocked = ("remote working", "weak junior hiring", "job losses", "blame for", "market report")
+
+    def is_startup_candidate(item: dict) -> bool:
+        text = item_text(item)
+        if item.get("source_type") == "job-board" or "job" in item.get("tags", []):
+            return False
+        if any(term in text for term in blocked):
+            return False
+        source = str(item.get("source") or "").lower()
+        title = str(item.get("title") or "").lower()
+        return (
+            item.get("source_type") == "product-hunt"
+            or "launch hn" in source
+            or "show hn" in source
+            or title.startswith("show hn:")
+            or title.startswith("launch hn:")
+            or {"startup", "product"}.intersection(set(item.get("tags") or []))
+            and "market" not in item.get("tags", [])
+        )
+
+    candidates = [
+        item
+        for item in items
+        if not is_github_url(item) and is_startup_candidate(item)
+    ]
+    return max(candidates, key=andrew_score, default=None)
+
+
+def pick_best_open_source(items: list[dict]) -> dict | None:
+    candidates = [
+        item
+        for item in items
+        if item.get("source_type") != "job-board" and (is_github_url(item) or item.get("source_type") == "github-trending")
+    ]
+    return max(candidates, key=andrew_score, default=None)
+
+
+def pain_point_score(items: list[dict]) -> dict:
+    best = {
+        "name": "暂无明确高频痛点",
+        "count": 0,
+        "users": "未知",
+        "willingness": "未知",
+        "evidence": [],
+    }
+    for topic in PAIN_TOPICS:
+        evidence = []
+        for item in items:
+            if item.get("source_type") == "job-board" or "job" in item.get("tags", []):
+                continue
+            text = item_text(item)
+            if any(text_has_term(text, keyword) for keyword in topic["keywords"]):
+                evidence.append(display_name(item))
+        if len(evidence) > int(best["count"]):
+            best = {
+                "name": topic["name"],
+                "count": len(evidence),
+                "users": topic["users"],
+                "willingness": topic["willingness"],
+                "evidence": evidence[:3],
+            }
+    return best
+
+
+def development_difficulty(item: dict | None) -> str:
+    if not item:
+        return "未知"
+    text = item_text(item)
+    if any(term in text for term in ("infrastructure", "distributed systems", "platform", "security", "memory poisoning")):
+        return "高"
+    if any(term in text for term in ("agent", "mcp", "retrieval", "search", "workflow")):
+        return "中"
+    return "中低"
+
+
+def monetization_model(item: dict | None) -> str:
+    if not item:
+        return "未知"
+    text = item_text(item)
+    if any(term in text for term in ("api", "infrastructure", "platform", "search", "retrieval", "agent")):
+        return "B2B SaaS / API usage / seat-based"
+    if any(term in text for term in ("job", "interview", "resume", "hiring")):
+        return "订阅 / 成功费 / B2C Pro"
+    return "SaaS 订阅或专业版"
+
+
+def recommendation_grade(score: int) -> str:
+    if score >= 140:
+        return "A"
+    if score >= 90:
+        return "B"
+    return "C"
+
+
+def format_job_os(job: dict | None) -> list[str]:
+    if not job:
+        return ["无 A/B 级匹配岗位。"]
+    metrics = job.get("metrics") or {}
+    company = short(metrics.get("company") or display_name(job), 48)
+    return [
+        f"{company} — {clean_job_role(job)}",
+        f"AI属性: {ai_job_category(job)}",
+        f"Andrew Score: {andrew_score(job)}",
+        f"预计TC: {estimate_tc(job)}",
+        f"为什么适合: {'、'.join((metrics.get('job_match_reasons') or [])[:4]) or '需要人工确认'}",
+        f"优先级: {job_priority(job)}",
+        f"链接: {job.get('url', '')}",
+    ]
+
+
+def format_startup_os(item: dict | None) -> list[str]:
+    if not item:
+        return ["无明确创业机会。"]
+    one_liner, why_lines, _ = opportunity_profile(item)
+    if one_liner.startswith("可能是") or one_liner.startswith("雷达认为"):
+        one_liner = title_detail(item)
+    score = andrew_score(item)
+    return [
+        f"{display_name(item)} — {short(one_liner, 100)}",
+        f"用户是谁: {user_group_for_item(item)}",
+        f"痛点是什么: {short(' '.join(why_lines), 130)}",
+        f"怎么赚钱: {monetization_model(item)}",
+        f"Andrew是否有优势: {andrew_project_value(item)}",
+        f"开发难度: {development_difficulty(item)}",
+        f"商业潜力: {commercial_value(item)}",
+        f"推荐等级: {recommendation_grade(score)} / Andrew Score {score}",
+        f"链接: {item.get('url', '')}",
+    ]
+
+
+def user_group_for_item(item: dict | None) -> str:
+    if not item:
+        return "未知"
+    text = item_text(item)
+    if "agent" in text or "mcp" in text:
+        return "AI agent 开发者、AI infra 团队"
+    if "developer" in text or "github" in text or "api" in text:
+        return "开发者和平台工程团队"
+    if "startup" in item.get("tags", []) or "product" in item.get("tags", []):
+        return "B2B SaaS / AI 产品团队"
+    return "早期 AI 工具用户"
+
+
+def format_open_source_os(item: dict | None) -> list[str]:
+    if not item:
+        return ["无明确开源项目。"]
+    one_liner, _, action_lines = opportunity_profile(item)
+    if one_liner.startswith("可能是") or one_liner.startswith("雷达认为"):
+        one_liner = title_detail(item)
+    summary = item.get("summary") or item.get("why") or one_liner
+    score = andrew_score(item)
+    return [
+        f"{display_name(item)} — {short(one_liner, 100)}",
+        f"解决什么问题: {short(summary, 130)}",
+        f"为什么值得 Fork: {worth_forking(item)}",
+        f"Andrew是否有优势: {andrew_project_value(item)}",
+        f"难度: {development_difficulty(item)}",
+        f"商业潜力: {commercial_value(item)}",
+        f"推荐等级: {recommendation_grade(score)} / Andrew Score {score}",
+        f"下一步: {short(' '.join(action_lines), 120)}",
+        f"链接: {item.get('url', '')}",
+    ]
+
+
+def format_pain_os(pain: dict) -> list[str]:
+    return [
+        str(pain["name"]),
+        f"出现次数: {pain['count']}",
+        f"用户群体: {pain['users']}",
+        f"是否愿意付费: {pain['willingness']}",
+        f"证据: {', '.join(pain.get('evidence') or []) or '暂无'}",
+        "Andrew是否有优势: 后端、平台、实时系统和 AI infra 背景适合做可靠工具层。",
+        f"推荐等级: {'A' if int(pain['count']) >= 8 else 'B' if int(pain['count']) >= 3 else 'C'}",
+    ]
+
+
 def build_email_body(test_results: list[StepResult], radar_result: StepResult) -> str:
     raw = latest_raw() or {"items": [], "warnings": []}
     items = raw.get("items", [])
@@ -612,33 +861,28 @@ def build_email_body(test_results: list[StepResult], radar_result: StepResult) -
 
     run_url = os.environ.get("GITHUB_RUN_URL")
     report_pointer = run_url or str(REPORT_PATH)
-    explicit_jobs = pick_job_items(items, 3)
-    max_attention = max(0, 5 - len(explicit_jobs))
-    picks = pick_research_items(items, min(3, max_attention))
-    action, reason = choose_daily_action(picks, explicit_jobs)
+    job = (pick_job_items(items, 1) or [None])[0]
+    startup = pick_best_startup(items)
+    open_source = pick_best_open_source(items)
+    pain = pain_point_score(items)
+    action, reason = choose_os_action(job, startup, open_source, pain)
 
     body: list[str] = [
-        "# 今日 AI 机会雷达",
+        "# Andrew Opportunity OS",
         "",
         f"状态: {status}",
         "",
-        "## 最值得关注（最多3个）",
+        "## 今日机会",
+        "",
+        "工作:",
     ]
-
-    if picks:
-        for idx, item in enumerate(picks, 1):
-            body.extend(["", *format_attention_item(item, idx)])
-    else:
-        body.append("")
-        body.append("今天没有超过 B 级的非岗位机会；优先看工作机会。")
-
-    body.extend(["", "## 工作机会（最多3个）"])
-    if explicit_jobs:
-        for idx, item in enumerate(explicit_jobs, 1):
-            body.extend(["", *format_job_decision(item, idx)])
-    else:
-        body.append("")
-        body.append("今天没有 A/B 级匹配岗位；不是没有岗位，而是没有明显适合 Andrew 目标的高质量远程 AI 后端机会。")
+    body.extend(format_job_os(job))
+    body.extend(["", "创业:"])
+    body.extend(format_startup_os(startup))
+    body.extend(["", "开源:"])
+    body.extend(format_open_source_os(open_source))
+    body.extend(["", "需求:"])
+    body.extend(format_pain_os(pain))
 
     body.extend(
         [
@@ -653,6 +897,43 @@ def build_email_body(test_results: list[StepResult], radar_result: StepResult) -
         ]
     )
     return "\n".join(body).strip() + "\n"
+
+
+def choose_os_action(job: dict | None, startup: dict | None, open_source: dict | None, pain: dict) -> tuple[str, str]:
+    candidates: list[tuple[int, str, str]] = []
+    if job:
+        candidates.append(
+            (
+                andrew_score(job) + 30,
+                f"研究/投递 {short((job.get('metrics') or {}).get('company') or display_name(job), 60)}",
+                "这是今天最接近 Andrew 背景和 AI infra 求职目标的机会。",
+            )
+        )
+    if startup:
+        candidates.append(
+            (
+                andrew_score(startup),
+                f"研究 {display_name(startup)}",
+                "这是今天最值得验证的创业/合作方向。",
+            )
+        )
+    if open_source:
+        candidates.append(
+            (
+                andrew_score(open_source),
+                f"Fork/clone {display_name(open_source)}",
+                "这是今天最值得拆解的开源机会。",
+            )
+        )
+    candidates.append(
+        (
+            int(pain["count"]) * 20,
+            f"验证痛点: {pain['name']}",
+            "痛点频率决定需求质量，先确认是否真实且愿意付费。",
+        )
+    )
+    _, action, reason = max(candidates, key=lambda candidate: candidate[0])
+    return action, reason
 
 
 def parse_args() -> argparse.Namespace:
