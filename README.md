@@ -102,12 +102,12 @@ python3 run_opportunity_notify.py
 - `reports/opportunity_latest.md`
 - `reports/last_opportunity_email.txt`
 
-邮件控制在 5 分钟内读完，只输出：
+邮件控制在 5 分钟内读完，V2 只输出：
 
-- 工作：1 个最值得投的 AI/AI infra 岗位，含预计 TC、AI 属性、Andrew Score。
-- 创业：1 个最值得研究的 AI 产品方向，含用户、痛点、商业模式。
-- 开源：1 个最值得 Fork 的项目，含解决的问题、Fork 价值和难度。
-- 需求：1 个高频痛点，含出现次数、用户群体、付费意愿。
+- 今日唯一工作机会：只保留 1 个，输出 Company Type、Role Type、TC Estimate、Decision（Apply Now / Watchlist / Ignore）。
+- 今日唯一创业机会：只保留 1 个，输出客户、痛点、付费信号、Andrew 优势、开发难度、市场大小、Decision（Study / Copy / Ignore）。
+- 今日唯一开源机会：只保留 1 个，输出 Fork 价值、商业化潜力、对求职/创业帮助、Decision（Fork / Bookmark / Ignore）。
+- 本周重复出现最多的需求：统计需求频率，不统计项目数量。
 - 今日唯一行动：只给一个 30 分钟动作。
 
 Andrew Score 会优先考虑 Disney / Binance / TikTok 背景、Kafka/Flink/分布式系统、后端平台经验、AI Infra / Agent / LLM 相关性；和 Andrew 无关的热闹信号会降权。

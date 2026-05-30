@@ -429,6 +429,35 @@ def ai_job_category(item: dict) -> str:
     return "C: 不是 AI 核心岗位，但可能适合 Andrew 的后端/平台背景"
 
 
+def company_type(item: dict) -> str:
+    category = ai_job_category(item)
+    if category.startswith("S:") or category.startswith("A:"):
+        return "AI Native"
+    if category.startswith("B:"):
+        return "AI First"
+    text = item_text(item)
+    if any(text_has_term(text, term) for term in ("ai", "llm", "agent", "machine learning", "model")):
+        return "AI Adjacent"
+    return "Traditional SaaS"
+
+
+def role_type(item: dict) -> str:
+    text = item_text(item)
+    role = str((item.get("metrics") or {}).get("role") or item.get("title") or "").lower()
+    combined = f"{role} {text}"
+    if any(text_has_term(combined, term) for term in ("ai infrastructure", "inference", "mcp", "vector search", "platform infrastructure")):
+        return "AI Infra"
+    if any(text_has_term(combined, term) for term in ("machine learning", "ml platform", "model", "training", "inference")):
+        return "ML Systems"
+    if any(text_has_term(combined, term) for term in ("agent platform", "ai agent", "agentic")):
+        return "Agent Platform"
+    if any(text_has_term(combined, term) for term in ("data platform", "kafka", "flink", "streaming", "real-time", "analytics")):
+        return "Data Platform"
+    if any(text_has_term(combined, term) for term in ("backend", "api", "java", "microservices", "serverless")):
+        return "Backend"
+    return "Other"
+
+
 def ai_job_rank(item: dict) -> int:
     category = ai_job_category(item)
     if category.startswith("S:"):
@@ -561,6 +590,72 @@ def worth_startup_reference(item: dict) -> str:
     return "一般，只做背景信号。"
 
 
+def paying_signal(item: dict | None) -> str:
+    if not item:
+        return "未知"
+    text = item_text(item)
+    if any(text_has_term(text, term) for term in ("customers", "revenue", "mrr", "pricing", "paid", "enterprise", "api usage")):
+        return "有付费信号"
+    if any(text_has_term(text, term) for term in ("waitlist", "beta", "show hn", "launch hn")):
+        return "未证实，仍在验证"
+    return "未证实"
+
+
+def market_size(item: dict | None) -> str:
+    if not item:
+        return "未知"
+    text = item_text(item)
+    if any(text_has_term(text, term) for term in ("agent", "llm", "infrastructure", "developer", "enterprise", "api")):
+        return "大：AI infra / developer tooling / enterprise workflow"
+    if any(text_has_term(text, term) for term in ("job", "interview", "resume", "hiring")):
+        return "中：求职和招聘工具市场明确，但竞争激烈"
+    return "中小：需要验证目标客户密度"
+
+
+def concrete_pain(item: dict | None, fallback: str = "") -> str:
+    if not item:
+        return fallback or "未知"
+    detail = title_detail(item)
+    text = item_text(item)
+    if "trust an expert" in text or "whether to trust" in text:
+        return "AI agent 在调用专家/外部知识时不知道该信任谁，企业 agent 需要可信度判断层。"
+    if "code smells" in text:
+        return "AI 生成代码质量不稳定，团队需要自动发现 AI 代码坏味道和维护风险。"
+    if "memory" in text and ("reuse" in text or "share" in text or "context" in text):
+        return "Agent 经验和上下文无法复用，导致每个 agent 重复推理、重复踩坑。"
+    if detail and detail.lower() not in {"untitled", "show hn"}:
+        return detail
+    return fallback or "需要人工打开链接确认真实痛点。"
+
+
+def startup_decision(item: dict | None) -> str:
+    if not item:
+        return "Ignore"
+    value = commercial_value(item)
+    score = andrew_score(item)
+    paid = paying_signal(item)
+    if value == "A" and score >= 90 and paid == "有付费信号":
+        return "Copy"
+    if value in {"A", "B"} and score >= 40:
+        return "Study"
+    return "Ignore"
+
+
+def open_source_decision(item: dict | None) -> str:
+    if not item:
+        return "Ignore"
+    if not is_github_url(item):
+        return "Ignore"
+    value = commercial_value(item)
+    score = andrew_score(item)
+    text = item_text(item)
+    if value == "A" and score >= 60 and any(text_has_term(text, term) for term in ("agent", "mcp", "cli", "developer", "code", "search")):
+        return "Fork"
+    if value in {"A", "B"} and score >= 35:
+        return "Bookmark"
+    return "Ignore"
+
+
 def andrew_project_value(item: dict) -> str:
     text = item_text(item)
     if "backend" in text or "infrastructure" in text or "platform" in text:
@@ -597,7 +692,15 @@ def estimate_tc(item: dict) -> str:
         return str(salary)
     if salary_max:
         return f"最高约 ${salary_max:,}"
-    return "未公开；申请前确认 base + equity 是否接近/超过 $300k USD"
+    ctype = company_type(item)
+    rtype = role_type(item)
+    if ctype == "AI Native" and rtype in {"AI Infra", "ML Systems", "Agent Platform"}:
+        return "$250k-$450k USD（未公开，按 AI infra/agent senior 市场估算）"
+    if ctype in {"AI Native", "AI First"} and rtype in {"Backend", "Data Platform"}:
+        return "$200k-$350k USD（未公开，需确认 equity）"
+    if ctype == "AI Adjacent":
+        return "$170k-$280k USD（未公开，偏平台/后端估算）"
+    return "$140k-$240k USD（未公开，普通 SaaS 后端估算）"
 
 
 def job_priority(item: dict) -> str:
@@ -609,6 +712,46 @@ def job_priority(item: dict) -> str:
     if job_match_score(item) >= 70:
         return "B"
     return "B"
+
+
+def job_decision(item: dict | None) -> str:
+    if not item:
+        return "Ignore"
+    ctype = company_type(item)
+    rtype = role_type(item)
+    score = job_match_score(item)
+    risks = " ".join((item.get("metrics") or {}).get("job_match_risks") or [])
+    salary_max = int((item.get("metrics") or {}).get("salary_max_detected") or (item.get("metrics") or {}).get("salary_max") or 0)
+    if "可能限制 US" in risks:
+        return "Watchlist"
+    if salary_max and salary_max < 180000:
+        return "Watchlist"
+    if ctype in {"AI Native", "AI First"} and rtype in {"AI Infra", "ML Systems", "Agent Platform", "Data Platform", "Backend"} and score >= 80:
+        return "Apply Now"
+    if ctype == "AI Adjacent" and score >= 90 and rtype in {"Data Platform", "Backend", "AI Infra"}:
+        return "Watchlist"
+    return "Ignore"
+
+
+def decision_rank(decision: str) -> int:
+    return {"Apply Now": 3, "Study": 3, "Copy": 3, "Fork": 3, "Watchlist": 2, "Bookmark": 2, "Ignore": 0}.get(decision, 1)
+
+
+def pick_best_job(items: list[dict]) -> dict | None:
+    jobs = [item for item in top_by_tag(items, {"job"}, len(items)) if is_actionable_job(item)]
+    jobs = [item for item in jobs if job_match_score(item) >= 45]
+    if not jobs:
+        return None
+    jobs.sort(
+        key=lambda item: (
+            decision_rank(job_decision(item)),
+            ai_job_rank(item),
+            job_match_score(item),
+            float(item.get("score") or 0),
+        ),
+        reverse=True,
+    )
+    return jobs[0]
 
 
 def format_job_decision(item: dict, rank: int) -> list[str]:
@@ -773,36 +916,39 @@ def recommendation_grade(score: int) -> str:
 
 def format_job_os(job: dict | None) -> list[str]:
     if not job:
-        return ["无 A/B 级匹配岗位。"]
+        return ["Decision: Ignore", "原因: 今天没有达到 Andrew 标准的 AI/AI infra 岗位。"]
     metrics = job.get("metrics") or {}
     company = short(metrics.get("company") or display_name(job), 48)
     return [
-        f"{company} — {clean_job_role(job)}",
-        f"AI属性: {ai_job_category(job)}",
+        f"公司: {company}",
+        f"岗位: {clean_job_role(job)}",
+        f"Company Type: {company_type(job)}",
+        f"Role Type: {role_type(job)}",
+        f"TC Estimate: {estimate_tc(job)}",
         f"Andrew Score: {andrew_score(job)}",
-        f"预计TC: {estimate_tc(job)}",
-        f"为什么适合: {'、'.join((metrics.get('job_match_reasons') or [])[:4]) or '需要人工确认'}",
-        f"优先级: {job_priority(job)}",
+        f"Decision: {job_decision(job)}",
+        f"Reason: {'、'.join((metrics.get('job_match_reasons') or [])[:4]) or '和 Andrew 背景匹配不足'}",
         f"链接: {job.get('url', '')}",
     ]
 
 
 def format_startup_os(item: dict | None) -> list[str]:
     if not item:
-        return ["无明确创业机会。"]
+        return ["Decision: Ignore", "原因: 今天没有明确创业机会。"]
     one_liner, why_lines, _ = opportunity_profile(item)
     if one_liner.startswith("可能是") or one_liner.startswith("雷达认为"):
         one_liner = title_detail(item)
     score = andrew_score(item)
     return [
-        f"{display_name(item)} — {short(one_liner, 100)}",
-        f"用户是谁: {user_group_for_item(item)}",
-        f"痛点是什么: {short(' '.join(why_lines), 130)}",
-        f"怎么赚钱: {monetization_model(item)}",
-        f"Andrew是否有优势: {andrew_project_value(item)}",
+        f"项目: {display_name(item)}",
+        f"一句话: {short(one_liner, 100)}",
+        f"客户是谁: {user_group_for_item(item)}",
+        f"痛点是什么: {short(concrete_pain(item, ' '.join(why_lines)), 150)}",
+        f"客户是否已经付费: {paying_signal(item)}",
+        f"Andrew是否有明显优势: {andrew_project_value(item)}",
         f"开发难度: {development_difficulty(item)}",
-        f"商业潜力: {commercial_value(item)}",
-        f"推荐等级: {recommendation_grade(score)} / Andrew Score {score}",
+        f"市场大小: {market_size(item)}",
+        f"Decision: {startup_decision(item)}",
         f"链接: {item.get('url', '')}",
     ]
 
@@ -822,21 +968,21 @@ def user_group_for_item(item: dict | None) -> str:
 
 def format_open_source_os(item: dict | None) -> list[str]:
     if not item:
-        return ["无明确开源项目。"]
+        return ["Decision: Ignore", "原因: 今天没有明确开源机会。"]
     one_liner, _, action_lines = opportunity_profile(item)
     if one_liner.startswith("可能是") or one_liner.startswith("雷达认为"):
         one_liner = title_detail(item)
-    summary = item.get("summary") or item.get("why") or one_liner
-    score = andrew_score(item)
+    summary = concrete_pain(item, one_liner)
     return [
-        f"{display_name(item)} — {short(one_liner, 100)}",
+        f"项目: {display_name(item)}",
+        f"一句话: {short(one_liner, 100)}",
         f"解决什么问题: {short(summary, 130)}",
-        f"为什么值得 Fork: {worth_forking(item)}",
-        f"Andrew是否有优势: {andrew_project_value(item)}",
-        f"难度: {development_difficulty(item)}",
-        f"商业潜力: {commercial_value(item)}",
-        f"推荐等级: {recommendation_grade(score)} / Andrew Score {score}",
-        f"下一步: {short(' '.join(action_lines), 120)}",
+        f"是否值得 Fork: {worth_forking(item)}",
+        f"是否有商业化潜力: {commercial_value(item)}",
+        f"是否能帮助 Andrew 获得工作机会: {'是' if commercial_value(item) == 'A' else '有限'}",
+        f"是否能帮助 Andrew 创业: {'是' if commercial_value(item) in {'A', 'B'} else '有限'}",
+        f"Decision: {open_source_decision(item)}",
+        f"Reason: {short(' '.join(action_lines), 120)}",
         f"链接: {item.get('url', '')}",
     ]
 
@@ -844,12 +990,12 @@ def format_open_source_os(item: dict | None) -> list[str]:
 def format_pain_os(pain: dict) -> list[str]:
     return [
         str(pain["name"]),
-        f"出现次数: {pain['count']}",
+        f"需求出现次数: {pain['count']}",
         f"用户群体: {pain['users']}",
         f"是否愿意付费: {pain['willingness']}",
         f"证据: {', '.join(pain.get('evidence') or []) or '暂无'}",
         "Andrew是否有优势: 后端、平台、实时系统和 AI infra 背景适合做可靠工具层。",
-        f"推荐等级: {'A' if int(pain['count']) >= 8 else 'B' if int(pain['count']) >= 3 else 'C'}",
+        f"Decision: {'Study' if int(pain['count']) >= 3 else 'Ignore'}",
     ]
 
 
@@ -861,27 +1007,25 @@ def build_email_body(test_results: list[StepResult], radar_result: StepResult) -
 
     run_url = os.environ.get("GITHUB_RUN_URL")
     report_pointer = run_url or str(REPORT_PATH)
-    job = (pick_job_items(items, 1) or [None])[0]
+    job = pick_best_job(items)
     startup = pick_best_startup(items)
     open_source = pick_best_open_source(items)
     pain = pain_point_score(items)
     action, reason = choose_os_action(job, startup, open_source, pain)
 
     body: list[str] = [
-        "# Andrew Opportunity OS",
+        "# Andrew Opportunity OS V2",
         "",
         f"状态: {status}",
         "",
-        "## 今日机会",
-        "",
-        "工作:",
+        "## 今日唯一工作机会",
     ]
     body.extend(format_job_os(job))
-    body.extend(["", "创业:"])
+    body.extend(["", "## 今日唯一创业机会"])
     body.extend(format_startup_os(startup))
-    body.extend(["", "开源:"])
+    body.extend(["", "## 今日唯一开源机会"])
     body.extend(format_open_source_os(open_source))
-    body.extend(["", "需求:"])
+    body.extend(["", "## 本周重复出现最多的需求"])
     body.extend(format_pain_os(pain))
 
     body.extend(
@@ -901,37 +1045,40 @@ def build_email_body(test_results: list[StepResult], radar_result: StepResult) -
 
 def choose_os_action(job: dict | None, startup: dict | None, open_source: dict | None, pain: dict) -> tuple[str, str]:
     candidates: list[tuple[int, str, str]] = []
-    if job:
+    if job and job_decision(job) == "Apply Now":
         candidates.append(
             (
-                andrew_score(job) + 30,
+                andrew_score(job) + 80,
                 f"研究/投递 {short((job.get('metrics') or {}).get('company') or display_name(job), 60)}",
-                "这是今天最接近 Andrew 背景和 AI infra 求职目标的机会。",
+                "Decision 是 Apply Now，且公司/角色与 Andrew 的 AI infra 和后端背景匹配。",
             )
         )
-    if startup:
+    if startup and startup_decision(startup) in {"Study", "Copy"}:
         candidates.append(
             (
-                andrew_score(startup),
+                andrew_score(startup) + (40 if startup_decision(startup) == "Copy" else 20),
                 f"研究 {display_name(startup)}",
-                "这是今天最值得验证的创业/合作方向。",
+                f"Decision 是 {startup_decision(startup)}，需要验证客户和付费信号。",
             )
         )
-    if open_source:
+    if open_source and open_source_decision(open_source) == "Fork":
         candidates.append(
             (
-                andrew_score(open_source),
+                andrew_score(open_source) + 30,
                 f"Fork/clone {display_name(open_source)}",
-                "这是今天最值得拆解的开源机会。",
+                "Decision 是 Fork，能帮助 Andrew 拆 AI 工具/infra 可复用能力。",
             )
         )
-    candidates.append(
-        (
-            int(pain["count"]) * 20,
-            f"验证痛点: {pain['name']}",
-            "痛点频率决定需求质量，先确认是否真实且愿意付费。",
+    if int(pain["count"]) >= 3:
+        candidates.append(
+            (
+                int(pain["count"]) * 20,
+                f"验证痛点: {pain['name']}",
+                "需求重复出现，优先确认用户是否愿意为解决方案付费。",
+            )
         )
-    )
+    if not candidates:
+        return ("忽略今日全部机会", "没有候选达到 Apply / Study / Fork 标准，今天不应该分散注意力。")
     _, action, reason = max(candidates, key=lambda candidate: candidate[0])
     return action, reason
 

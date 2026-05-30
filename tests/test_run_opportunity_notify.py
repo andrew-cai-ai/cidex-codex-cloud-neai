@@ -77,21 +77,22 @@ class OpportunityDigestTest(unittest.TestCase):
                 run_opportunity_notify.StepResult("opportunity-radar", True, ""),
             )
 
-        self.assertIn("# Andrew Opportunity OS", body)
-        self.assertIn("## 今日机会", body)
-        self.assertIn("工作:", body)
-        self.assertIn("创业:", body)
-        self.assertIn("开源:", body)
-        self.assertIn("需求:", body)
+        self.assertIn("# Andrew Opportunity OS V2", body)
+        self.assertIn("## 今日唯一工作机会", body)
+        self.assertIn("## 今日唯一创业机会", body)
+        self.assertIn("## 今日唯一开源机会", body)
+        self.assertIn("## 本周重复出现最多的需求", body)
         self.assertIn("OpenHive", body)
-        self.assertIn("用户是谁:", body)
+        self.assertIn("客户是谁:", body)
         self.assertIn("痛点是什么:", body)
-        self.assertIn("怎么赚钱:", body)
+        self.assertIn("客户是否已经付费:", body)
         self.assertIn("Andrew是否有优势:", body)
         self.assertIn("Brandfetch", body)
-        self.assertIn("AI属性:", body)
+        self.assertIn("Company Type:", body)
+        self.assertIn("Role Type:", body)
+        self.assertIn("TC Estimate:", body)
+        self.assertIn("Decision: Apply Now", body)
         self.assertIn("Andrew Score:", body)
-        self.assertIn("预计TC:", body)
         self.assertIn("## 今日唯一动作", body)
         self.assertNotIn("值得程度表:", body)
         self.assertNotIn("| OpenHive |", body)
@@ -184,6 +185,43 @@ class OpportunityDigestTest(unittest.TestCase):
         }
 
         self.assertTrue(run_opportunity_notify.ai_job_category(item).startswith("C:"))
+
+    def test_v2_job_decision_requires_ai_company_and_role_fit(self):
+        ai_job = SAMPLE_RAW["items"][-1]
+        generic_job = {
+            "title": "Generic SaaS | Senior Backend Engineer",
+            "source_type": "job-board",
+            "tags": ["job"],
+            "summary": "Remote Java backend APIs and billing systems.",
+            "metrics": {
+                "company": "Generic SaaS",
+                "role": "Senior Backend Engineer",
+                "job_match_score": 95,
+                "job_match_reasons": ["backend", "java"],
+                "job_match_risks": [],
+            },
+        }
+
+        self.assertEqual(run_opportunity_notify.company_type(ai_job), "AI Native")
+        self.assertEqual(run_opportunity_notify.role_type(ai_job), "AI Infra")
+        self.assertEqual(run_opportunity_notify.job_decision(ai_job), "Apply Now")
+        self.assertEqual(run_opportunity_notify.company_type(generic_job), "Traditional SaaS")
+        self.assertEqual(run_opportunity_notify.job_decision(generic_job), "Ignore")
+
+    def test_v2_project_decisions_are_explicit(self):
+        startup = SAMPLE_RAW["items"][1]
+        open_source = SAMPLE_RAW["items"][0]
+
+        self.assertIn(run_opportunity_notify.startup_decision(startup), {"Study", "Copy", "Ignore"})
+        self.assertIn(run_opportunity_notify.open_source_decision(open_source), {"Fork", "Bookmark", "Ignore"})
+
+    def test_concrete_pain_extracts_decision_relevant_problem(self):
+        item = {
+            "title": "Show HN: AISlop, a CLI for catching AI generated code smells",
+            "summary": "HN discussion: 64 points",
+        }
+
+        self.assertIn("AI 生成代码质量", run_opportunity_notify.concrete_pain(item))
 
     def test_attention_item_has_required_decision_fields(self):
         item = SAMPLE_RAW["items"][1]
