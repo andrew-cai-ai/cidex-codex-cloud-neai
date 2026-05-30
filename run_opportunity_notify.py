@@ -4,10 +4,11 @@
 from __future__ import annotations
 
 import argparse
+import json
 import os
 import re
 import sys
-from datetime import datetime
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 from radar_notify_common import StepResult, load_env_file, load_latest_json, run_command, truncate
@@ -85,6 +86,128 @@ S_TIER_COMPANIES = {
     "cohere": "Cohere",
 }
 
+TREND_TOPICS = [
+    {
+        "key": "agent-memory",
+        "name": "Agent Memory",
+        "keywords": [
+            "agent memory",
+            "memory layer",
+            "long-term memory",
+            "memory poisoning",
+            "memory guard",
+            "share solutions",
+            "dont re-solve",
+            "context reuse",
+            "openhive",
+            "async agents",
+        ],
+        "andrew_reasons": ["Distributed Systems", "State Management", "Data Platform", "Reliability", "AI Infra"],
+        "stage": "Early",
+        "competition": "Low",
+        "enterprise_demand": "Growing",
+        "action": "本周投入2小时研究 memory/schema/versioning，判断能否做成 Agent infra 组件。",
+    },
+    {
+        "key": "agent-infrastructure",
+        "name": "Agent Infrastructure",
+        "keywords": [
+            "agent infrastructure",
+            "agent platform",
+            "agentic",
+            "mcp",
+            "model context protocol",
+            "tool calling",
+            "workflow",
+            "orchestration",
+            "observability",
+        ],
+        "andrew_reasons": ["Backend Platform", "Distributed Systems", "AWS", "Reliability", "Developer Tools"],
+        "stage": "Early-Mid",
+        "competition": "Medium",
+        "enterprise_demand": "Growing",
+        "action": "持续监控，把重复出现的 agent infra 模块整理成自己的架构地图。",
+    },
+    {
+        "key": "evaluation",
+        "name": "Evaluation",
+        "keywords": [
+            "eval",
+            "evaluation",
+            "benchmark",
+            "code smells",
+            "guardrail",
+            "llm judge",
+            "agent test",
+        ],
+        "andrew_reasons": ["Reliability", "Production Quality", "Observability", "Incident Response"],
+        "stage": "Early-Mid",
+        "competition": "Medium",
+        "enterprise_demand": "Growing",
+        "action": "收集 3 个 eval/quality 产品，判断企业是否愿意按 seat 或 usage 付费。",
+    },
+    {
+        "key": "ai-coding",
+        "name": "AI Coding",
+        "keywords": [
+            "ai coding",
+            "coding agent",
+            "codex",
+            "claude code",
+            "cursor",
+            "opencode",
+            "developer productivity",
+            "code generation",
+            "vibe coding",
+        ],
+        "andrew_reasons": ["Senior Backend", "Developer Tools", "Code Review", "Platform Engineering"],
+        "stage": "Mid",
+        "competition": "High",
+        "enterprise_demand": "Growing",
+        "action": "只看 infra/quality/security 子方向，避开普通 wrapper。",
+    },
+    {
+        "key": "voice-agents",
+        "name": "Voice Agents",
+        "keywords": ["voice agent", "voice ai", "speech", "realtime voice", "call center", "phone agent"],
+        "andrew_reasons": ["Real-Time Systems", "Streaming", "Low Latency", "Backend"],
+        "stage": "Early-Mid",
+        "competition": "Medium",
+        "enterprise_demand": "Growing",
+        "action": "观察实时语音 infra 和垂直场景，不急着做通用 voice bot。",
+    },
+    {
+        "key": "browser-agents",
+        "name": "Browser Agents",
+        "keywords": ["browser agent", "computer use", "web automation", "browser automation", "desktop agent", "operator"],
+        "andrew_reasons": ["Workflow Automation", "Reliability", "Backend Orchestration"],
+        "stage": "Early",
+        "competition": "Medium",
+        "enterprise_demand": "Unclear but rising",
+        "action": "监控可靠性和权限模型，只有出现企业刚需再深入。",
+    },
+    {
+        "key": "agent-search",
+        "name": "Agent Search",
+        "keywords": ["agent search", "search router", "web search", "retrieval", "rag", "knowledge graph", "vector search"],
+        "andrew_reasons": ["Data Platform", "Retrieval", "Backend APIs", "Performance"],
+        "stage": "Early-Mid",
+        "competition": "Medium",
+        "enterprise_demand": "Growing",
+        "action": "研究搜索路由、缓存、质量评估，判断能否接进自己的 agent 工作流。",
+    },
+    {
+        "key": "agent-security",
+        "name": "Agent Security",
+        "keywords": ["agent security", "prompt injection", "memory poisoning", "owasp", "guardrail", "security"],
+        "andrew_reasons": ["Reliability", "Production Systems", "Risk Control", "Enterprise Infra"],
+        "stage": "Early",
+        "competition": "Low-Medium",
+        "enterprise_demand": "Growing",
+        "action": "跟踪企业安全需求，优先学习攻击面和防护边界。",
+    },
+]
+
 
 def run_self_tests() -> list[StepResult]:
     return [
@@ -125,6 +248,46 @@ def run_radar(args: argparse.Namespace) -> StepResult:
 
 def latest_raw() -> dict | None:
     return load_latest_json(RAW_DIR)
+
+
+def utc_now() -> datetime:
+    return datetime.now(timezone.utc)
+
+
+def parse_datetime(value: str | None) -> datetime | None:
+    if not value:
+        return None
+    try:
+        parsed = datetime.fromisoformat(value.replace("Z", "+00:00"))
+    except ValueError:
+        return None
+    if parsed.tzinfo is None:
+        return parsed.replace(tzinfo=timezone.utc)
+    return parsed.astimezone(timezone.utc)
+
+
+def load_historical_raws(max_days: int = 30) -> list[dict]:
+    cutoff = utc_now() - timedelta(days=max_days)
+    snapshots: list[dict] = []
+    for path in sorted(RAW_DIR.glob("*.json")):
+        try:
+            raw = json.loads(path.read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError):
+            continue
+        run_time = parse_datetime(str(raw.get("run_time") or ""))
+        if run_time and run_time < cutoff:
+            continue
+        raw["_path"] = str(path)
+        snapshots.append(raw)
+    return snapshots
+
+
+def history_with_current(raw: dict, historical: list[dict] | None = None) -> list[dict]:
+    snapshots = list(historical if historical is not None else load_historical_raws(30))
+    current_id = str(raw.get("run_time") or id(raw))
+    if not any(str(snapshot.get("run_time") or id(snapshot)) == current_id for snapshot in snapshots):
+        snapshots.append(raw)
+    return snapshots
 
 
 def short(value: str, limit: int = 120) -> str:
@@ -995,6 +1158,246 @@ def pain_point_score(items: list[dict]) -> dict:
     return best
 
 
+def signal_key(item: dict) -> str:
+    raw = str(item.get("url") or item.get("id") or item.get("title") or id(item))
+    return re.sub(r"\s+", " ", raw.lower()).strip()
+
+
+def topic_matches(item: dict, topic: dict) -> bool:
+    text = item_text(item)
+    return any(text_has_term(text, keyword) for keyword in topic["keywords"])
+
+
+def item_topics(item: dict) -> list[dict]:
+    matched = [topic for topic in TREND_TOPICS if topic_matches(item, topic)]
+    if not matched:
+        for theme in detect_themes(item_text(item)):
+            if theme == "agent-memory":
+                matched.extend(topic for topic in TREND_TOPICS if topic["key"] == "agent-memory")
+            elif theme == "agent-search":
+                matched.extend(topic for topic in TREND_TOPICS if topic["key"] == "agent-search")
+            elif theme == "agent-security":
+                matched.extend(topic for topic in TREND_TOPICS if topic["key"] == "agent-security")
+            elif theme == "agent-infra":
+                matched.extend(topic for topic in TREND_TOPICS if topic["key"] == "agent-infrastructure")
+    deduped: dict[str, dict] = {}
+    for topic in matched:
+        deduped[topic["key"]] = topic
+    return list(deduped.values())
+
+
+def snapshot_time(snapshot: dict, fallback: datetime) -> datetime:
+    return parse_datetime(str(snapshot.get("run_time") or "")) or fallback
+
+
+def item_is_trend_signal(item: dict) -> bool:
+    if item.get("source_type") == "job-board":
+        return False
+    text = item_text(item)
+    if any(term in text for term in ("product trailers", "tv channel for product hunt")):
+        return False
+    return bool(item_topics(item))
+
+
+def count_topic_periods(snapshots: list[dict], now: datetime) -> tuple[dict[str, dict[str, set[str]]], dict[str, list[dict]], dict[str, bool]]:
+    periods = {
+        "7": (0, 7),
+        "14": (0, 14),
+        "30": (0, 30),
+        "prev7": (7, 14),
+    }
+    counts: dict[str, dict[str, set[str]]] = {
+        topic["key"]: {period: set() for period in periods}
+        for topic in TREND_TOPICS
+    }
+    examples: dict[str, dict[str, dict]] = {topic["key"]: {} for topic in TREND_TOPICS}
+    has_period = {"prev7": False, "prev30": False}
+
+    for snapshot in snapshots:
+        run_time = snapshot_time(snapshot, now)
+        age_days = max(0.0, (now - run_time).total_seconds() / 86400)
+        if 7 < age_days <= 14:
+            has_period["prev7"] = True
+        if 14 < age_days <= 30:
+            has_period["prev30"] = True
+        if age_days > 30:
+            continue
+        for item in snapshot.get("items") or []:
+            if not item_is_trend_signal(item):
+                continue
+            key = signal_key(item)
+            for topic in item_topics(item):
+                topic_key = topic["key"]
+                for period, (start, end) in periods.items():
+                    if start < age_days <= end or (start == 0 and age_days <= end):
+                        counts[topic_key][period].add(key)
+                if key not in examples[topic_key]:
+                    examples[topic_key][key] = item
+
+    return counts, {key: list(value.values()) for key, value in examples.items()}, has_period
+
+
+def trend_label(current_7: int, previous_7: int, has_previous_7: bool) -> str:
+    if not has_previous_7:
+        if current_7 >= 3:
+            return "→ Early signal（历史不足，先不判断涨跌）"
+        return "→ Weak signal"
+    if previous_7 == 0 and current_7 >= 3:
+        return "↑ New Uptrend"
+    if previous_7 and current_7 >= previous_7 * 1.5 and current_7 >= 3:
+        return "↑ Strong Uptrend"
+    if current_7 > previous_7:
+        return "↑ Uptrend"
+    if previous_7 and current_7 <= previous_7 * 0.6:
+        return "↓ Cooling"
+    return "→ Stable"
+
+
+def compounding_level(count_30: int) -> str:
+    if count_30 >= 10:
+        return "Strategic"
+    if count_30 >= 5:
+        return "Important"
+    if count_30 >= 3:
+        return "Interesting"
+    return "Noise"
+
+
+def andrew_match_for_topic(topic: dict, counts: dict[str, int]) -> int:
+    base_scores = {
+        "agent-memory": 90,
+        "agent-infrastructure": 88,
+        "agent-search": 86,
+        "agent-security": 86,
+        "evaluation": 84,
+        "ai-coding": 80,
+        "voice-agents": 78,
+        "browser-agents": 74,
+    }
+    base = base_scores.get(str(topic["key"]), 70)
+    boost = min(10, counts["7"] * 2) + min(5, counts["30"] // 3)
+    return min(100, base + boost)
+
+
+def strategic_decision(level: str, match: int) -> str:
+    if level == "Strategic" and match >= 85:
+        return "Study"
+    if level in {"Strategic", "Important", "Interesting"} and match >= 80:
+        return "Monitor"
+    return "Ignore"
+
+
+def strategic_signal_score(signal: dict) -> int:
+    level_bonus = {"Strategic": 25, "Important": 15, "Interesting": 8, "Noise": 0}.get(str(signal.get("compounding")), 0)
+    competition_bonus = {
+        "Low": 12,
+        "Low-Medium": 8,
+        "Medium": 0,
+        "High": -20,
+    }.get(str(signal.get("competition") or "Medium"), 0)
+    stage_bonus = {
+        "Early": 10,
+        "Early-Mid": 6,
+        "Mid": 0,
+    }.get(str(signal.get("stage") or "Mid"), 0)
+    return int(signal.get("andrew_match") or 0) + level_bonus + competition_bonus + stage_bonus
+
+
+def build_repeated_signals(snapshots: list[dict]) -> list[dict]:
+    now_candidates = [parse_datetime(str(snapshot.get("run_time") or "")) for snapshot in snapshots]
+    now = max((candidate for candidate in now_candidates if candidate), default=utc_now())
+    raw_counts, examples, has_period = count_topic_periods(snapshots, now)
+    topics_by_key = {topic["key"]: topic for topic in TREND_TOPICS}
+    signals: list[dict] = []
+
+    for key, topic in topics_by_key.items():
+        counts = {
+            "7": len(raw_counts[key]["7"]),
+            "14": len(raw_counts[key]["14"]),
+            "30": len(raw_counts[key]["30"]),
+            "prev7": len(raw_counts[key]["prev7"]),
+        }
+        if counts["30"] == 0:
+            continue
+        representatives = sorted(examples.get(key, []), key=andrew_score, reverse=True)[:3]
+        match = andrew_match_for_topic(topic, counts)
+        level = compounding_level(counts["30"])
+        signals.append(
+            {
+                "key": key,
+                "topic": topic["name"],
+                "counts": counts,
+                "trend": trend_label(counts["7"], counts["prev7"], has_period["prev7"]),
+                "representatives": representatives,
+                "andrew_match": match,
+                "andrew_reasons": topic["andrew_reasons"],
+                "stage": topic["stage"],
+                "competition": topic["competition"],
+                "enterprise_demand": topic["enterprise_demand"],
+                "action": topic["action"],
+                "compounding": level,
+                "decision": strategic_decision(level, match),
+            }
+        )
+
+    signals.sort(key=lambda signal: (signal["counts"]["7"], signal["counts"]["30"], signal["andrew_match"]), reverse=True)
+    return signals
+
+
+def format_repeated_signal(signal: dict, rank: int) -> list[str]:
+    counts = signal["counts"]
+    representative_names = [display_name(item) for item in signal.get("representatives") or []]
+    return [
+        f"{rank}. {signal['topic']}",
+        f"7天: {counts['7']} | 14天: {counts['14']} | 30天: {counts['30']}",
+        f"趋势: {signal['trend']}",
+        f"代表项目: {', '.join(representative_names) or '暂无'}",
+        f"Andrew Match: {signal['andrew_match']}/100",
+        f"原因: {', '.join(signal['andrew_reasons'][:5])}",
+        f"行动建议: {signal['action']}",
+    ]
+
+
+def format_repeated_signals(signals: list[dict], limit: int = 3) -> list[str]:
+    if not signals:
+        return ["暂无足够重复信号；今天不做趋势判断。"]
+    lines: list[str] = []
+    for idx, signal in enumerate(signals[:limit], 1):
+        if lines:
+            lines.append("")
+        lines.extend(format_repeated_signal(signal, idx))
+    return lines
+
+
+def format_strategic_opportunities(signals: list[dict], limit: int = 3) -> list[str]:
+    strategic = [
+        signal
+        for signal in signals
+        if signal["compounding"] in {"Interesting", "Important", "Strategic"} and signal["decision"] != "Ignore"
+    ]
+    strategic.sort(key=strategic_signal_score, reverse=True)
+    strategic = strategic[:limit]
+    if not strategic:
+        return ["暂无 Strategic/Important 级方向；继续观察，不要硬投入。"]
+
+    lines: list[str] = []
+    for signal in strategic:
+        if lines:
+            lines.append("")
+        lines.extend(
+            [
+                f"Market: {signal['topic']}",
+                f"Current Stage: {signal['stage']}",
+                f"Competition: {signal['competition']}",
+                f"Enterprise Demand: {signal['enterprise_demand']}",
+                f"Andrew Advantage: {'High' if signal['andrew_match'] >= 85 else 'Medium'}",
+                f"Compounding: {signal['compounding']} ({signal['counts']['30']} signals / 30天)",
+                f"Decision: {signal['decision']}",
+            ]
+        )
+    return lines
+
+
 def development_difficulty(item: dict | None) -> str:
     if not item:
         return "未知"
@@ -1102,6 +1505,42 @@ def format_job_os(job: dict | None, items: list[dict] | None = None) -> list[str
     return lines
 
 
+def format_job_v3(job: dict | None, items: list[dict] | None = None) -> list[str]:
+    items = items or []
+    if not job:
+        lines = ["无值得立刻投递岗位。", "Decision: Ignore", "原因: 今天没有达到 Andrew 标准的 AI/AI infra 岗位。"]
+        lines.extend(f"Competition: {line}" for line in opportunity_competition(None, items)[:1])
+        return lines
+
+    metrics = job.get("metrics") or {}
+    company = short(metrics.get("company") or display_name(job), 48)
+    decision = job_decision(job)
+    if decision != "Apply Now":
+        lines = [
+            "无值得立刻投递岗位。",
+            f"观察候选: {company} — {clean_job_role(job)}",
+            f"Company Type: {company_type(job)}",
+            f"TC Estimate: {estimate_tc(job)}",
+            f"Confidence: {job_confidence(job)}",
+            f"Decision: {decision}",
+            "为什么不投: 证据不足以占用当天唯一投递名额。",
+        ]
+        lines.extend(f"Competition: {line}" for line in opportunity_competition(job, items)[:2])
+        return lines
+
+    return [
+        f"公司: {company}",
+        f"岗位: {clean_job_role(job)}",
+        f"Company Type: {company_type(job)}",
+        f"Role Type: {role_type(job)}",
+        f"TC Estimate: {estimate_tc(job)}",
+        f"Confidence: {job_confidence(job)}",
+        f"Decision: Apply Now",
+        f"为什么投: {'、'.join((metrics.get('job_match_reasons') or [])[:4]) or '和 Andrew 背景匹配。'}",
+        f"链接: {job.get('url', '')}",
+    ]
+
+
 def format_startup_os(item: dict | None) -> list[str]:
     if not item or startup_decision(item) == "Ignore":
         return ["Decision: Ignore", "原因: 今天没有明确创业机会。"]
@@ -1118,6 +1557,23 @@ def format_startup_os(item: dict | None) -> list[str]:
         f"Andrew是否有明显优势: {andrew_project_value(item)}",
         f"开发难度: {development_difficulty(item)}",
         f"市场大小: {market_size(item)}",
+        f"Decision: {startup_decision(item)}",
+        f"链接: {item.get('url', '')}",
+    ]
+
+
+def format_startup_v3(item: dict | None) -> list[str]:
+    if not item or startup_decision(item) == "Ignore":
+        return ["无值得单独研究的创业项目。", "Decision: Ignore", "原因: 单个项目不如重复趋势重要。"]
+    one_liner, why_lines, _ = opportunity_profile(item)
+    if one_liner.startswith("可能是") or one_liner.startswith("雷达认为"):
+        one_liner = title_detail(item)
+    return [
+        f"项目: {display_name(item)}",
+        f"一句话: {short(one_liner, 100)}",
+        f"背后需求: {short(concrete_pain(item, ' '.join(why_lines)), 130)}",
+        f"客户: {user_group_for_item(item)}",
+        f"付费信号: {paying_signal(item)}",
         f"Decision: {startup_decision(item)}",
         f"链接: {item.get('url', '')}",
     ]
@@ -1172,6 +1628,8 @@ def format_pain_os(pain: dict) -> list[str]:
 def build_email_body(test_results: list[StepResult], radar_result: StepResult) -> str:
     raw = latest_raw() or {"items": [], "warnings": []}
     items = raw.get("items", [])
+    snapshots = history_with_current(raw)
+    repeated_signals = build_repeated_signals(snapshots)
     all_ok = all(result.ok for result in test_results + [radar_result])
     status = "OK" if all_ok else "ATTENTION"
 
@@ -1179,24 +1637,22 @@ def build_email_body(test_results: list[StepResult], radar_result: StepResult) -
     report_pointer = run_url or str(REPORT_PATH)
     job = pick_best_job(items)
     startup = pick_best_startup(items)
-    open_source = pick_best_open_source(items)
-    pain = pain_point_score(items)
-    action, reason = choose_os_action(job, startup, open_source, pain)
+    action, reason = choose_v3_action(job, startup, repeated_signals)
 
     body: list[str] = [
-        "# Andrew Opportunity OS V2",
+        "# Andrew Opportunity OS V3",
         "",
         f"状态: {status}",
         "",
-        "## 今日唯一工作机会",
+        "## 今日工作机会",
     ]
-    body.extend(format_job_os(job, items))
-    body.extend(["", "## 今日唯一创业机会"])
-    body.extend(format_startup_os(startup))
-    body.extend(["", "## 今日唯一开源机会"])
-    body.extend(format_open_source_os(open_source))
-    body.extend(["", "## 本周重复出现最多的需求"])
-    body.extend(format_pain_os(pain))
+    body.extend(format_job_v3(job, items))
+    body.extend(["", "## 今日创业机会"])
+    body.extend(format_startup_v3(startup))
+    body.extend(["", "## 本周重复信号 Top3"])
+    body.extend(format_repeated_signals(repeated_signals, 3))
+    body.extend(["", "## 战略机会"])
+    body.extend(format_strategic_opportunities(repeated_signals, 3))
 
     body.extend(
         [
@@ -1211,6 +1667,35 @@ def build_email_body(test_results: list[StepResult], radar_result: StepResult) -
         ]
     )
     return "\n".join(body).strip() + "\n"
+
+
+def choose_v3_action(job: dict | None, startup: dict | None, repeated_signals: list[dict]) -> tuple[str, str]:
+    if job and job_decision(job) == "Apply Now":
+        company = short((job.get("metrics") or {}).get("company") or display_name(job), 60)
+        return (
+            f"研究/投递 {company}",
+            "这是今天唯一达到 Apply Now 的岗位；先确认 JD、薪资和远程范围，再定制简历。",
+        )
+
+    strategic = [
+        signal
+        for signal in repeated_signals
+        if signal["compounding"] in {"Interesting", "Important", "Strategic"} and signal["andrew_match"] >= 85
+    ]
+    if strategic:
+        signal = max(strategic, key=strategic_signal_score)
+        return (
+            f"验证趋势: {signal['topic']}",
+            f"{signal['topic']} 在 30 天窗口达到 {signal['compounding']}，Andrew Match={signal['andrew_match']}/100，竞争={signal.get('competition', 'Unknown')}；今天只验证客户和付费场景。",
+        )
+
+    if startup and startup_decision(startup) == "Copy":
+        return (
+            f"研究 {display_name(startup)}",
+            "这个创业机会有付费信号且和 Andrew 背景匹配，但仍需先验证它是否属于可复利趋势。",
+        )
+
+    return ("NO ACTION TODAY", "没有重复信号达到 Interesting，也没有岗位达到 Apply Now；今天不应该硬行动。")
 
 
 def choose_os_action(job: dict | None, startup: dict | None, open_source: dict | None, pain: dict) -> tuple[str, str]:

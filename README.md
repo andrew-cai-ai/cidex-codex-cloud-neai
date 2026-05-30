@@ -102,13 +102,15 @@ python3 run_opportunity_notify.py
 - `reports/opportunity_latest.md`
 - `reports/last_opportunity_email.txt`
 
-邮件控制在 5 分钟内读完，V2 只输出：
+邮件控制在 5 分钟内读完，V3 从项目雷达升级为趋势雷达：
 
-- 今日唯一工作机会：只保留 1 个，输出 Company Type、Role Type、TC Estimate、Evidence、Confidence、Opportunity Competition、Decision（Apply Now / Watchlist / Ignore）。
-- 今日唯一创业机会：只保留 1 个，输出客户、痛点、付费信号、Andrew 优势、开发难度、市场大小、Decision（Study / Copy / Ignore）。
-- 今日唯一开源机会：只保留 1 个，输出 Fork 价值、商业化潜力、对求职/创业帮助、Decision（Fork / Bookmark / Ignore）。
-- 本周重复出现最多的需求：统计需求频率，不统计项目数量。
-- 今日唯一行动：只给一个 30 分钟动作；如果没有候选达到标准，会明确输出 `NO ACTION TODAY`。
+- 今日工作机会：最多 1 个；只有达到 Apply Now 才建议投递，Watchlist 不占用当天投递名额。
+- 今日创业机会：最多 1 个；只作为具体样本，重点看它背后的需求。
+- 本周重复信号 Top3：按过去 7 / 14 / 30 天窗口统计主题，而不是统计项目列表。
+- 战略机会：只保留未来 6-24 个月值得持续关注的方向，输出市场阶段、竞争、企业需求、Andrew Advantage 和 Decision。
+- 今日唯一行动：只给一个 30 分钟动作；如果没有趋势或岗位达到标准，会明确输出 `NO ACTION TODAY`。
+
+V3 当前追踪的主题包括 Agent Memory、Agent Infrastructure、Evaluation、AI Coding、Voice Agents、Browser Agents、Agent Search、Agent Security。趋势统计会排除 job-board 数据，避免岗位描述污染需求判断；同一个 URL / item 在多次运行里只计一次。
 
 岗位判断规则：
 

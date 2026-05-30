@@ -5,6 +5,7 @@ import run_opportunity_notify
 
 
 SAMPLE_RAW = {
+    "run_time": "2026-05-30T12:00:00+00:00",
     "items": [
         {
             "id": "search",
@@ -71,37 +72,39 @@ SAMPLE_RAW = {
 
 class OpportunityDigestTest(unittest.TestCase):
     def test_editorial_digest_has_conclusion_and_one_action(self):
-        with patch("run_opportunity_notify.latest_raw", return_value=SAMPLE_RAW):
+        with (
+            patch("run_opportunity_notify.latest_raw", return_value=SAMPLE_RAW),
+            patch("run_opportunity_notify.load_historical_raws", return_value=[SAMPLE_RAW]),
+        ):
             body = run_opportunity_notify.build_email_body(
                 [run_opportunity_notify.StepResult("compile", True, "")],
                 run_opportunity_notify.StepResult("opportunity-radar", True, ""),
             )
 
-        self.assertIn("# Andrew Opportunity OS V2", body)
-        self.assertIn("## 今日唯一工作机会", body)
-        self.assertIn("## 今日唯一创业机会", body)
-        self.assertIn("## 今日唯一开源机会", body)
-        self.assertIn("## 本周重复出现最多的需求", body)
+        self.assertIn("# Andrew Opportunity OS V3", body)
+        self.assertIn("## 今日工作机会", body)
+        self.assertIn("## 今日创业机会", body)
+        self.assertIn("## 本周重复信号 Top3", body)
+        self.assertIn("## 战略机会", body)
         self.assertIn("OpenHive", body)
-        self.assertIn("客户是谁:", body)
-        self.assertIn("痛点是什么:", body)
-        self.assertIn("客户是否已经付费:", body)
-        self.assertIn("Andrew是否有优势:", body)
+        self.assertIn("客户:", body)
+        self.assertIn("背后需求:", body)
+        self.assertIn("付费信号:", body)
         self.assertIn("Brandfetch", body)
         self.assertIn("Company Type:", body)
-        self.assertIn("Role Type:", body)
         self.assertIn("TC Estimate:", body)
-        self.assertIn("Evidence:", body)
         self.assertIn("Confidence:", body)
-        self.assertIn("Opportunity Competition:", body)
         self.assertIn("Decision: Watchlist", body)
         self.assertIn("Unknown（当前抓取材料没有薪资证据", body)
-        self.assertIn("Andrew Score:", body)
+        self.assertIn("Agent Memory", body)
+        self.assertIn("Andrew Match:", body)
         self.assertIn("## 今日唯一动作", body)
+        self.assertIn("NO ACTION TODAY", body)
+        self.assertNotIn("## 今日唯一开源机会", body)
         self.assertNotIn("值得程度表:", body)
         self.assertNotIn("| OpenHive |", body)
         self.assertNotIn("今日信号分布", body)
-        self.assertLessEqual(body.count("链接:"), 5)
+        self.assertLessEqual(body.count("链接:"), 2)
         self.assertLess(len(body.splitlines()), 95)
 
     def test_editorial_priority_prefers_agent_infrastructure(self):
@@ -251,6 +254,53 @@ class OpportunityDigestTest(unittest.TestCase):
 
         self.assertEqual(action, "NO ACTION TODAY")
         self.assertIn("没有候选达到", reason)
+
+    def test_v3_no_action_today_is_allowed_without_repeated_trend(self):
+        action, reason = run_opportunity_notify.choose_v3_action(None, None, [])
+
+        self.assertEqual(action, "NO ACTION TODAY")
+        self.assertIn("没有重复信号", reason)
+
+    def test_repeated_signals_count_7_14_30_day_windows(self):
+        now = "2026-05-30T12:00:00+00:00"
+        prev = "2026-05-21T12:00:00+00:00"
+        memory_items = [
+            {
+                "id": f"mem-{idx}",
+                "title": f"Show HN: Agent Memory {idx}",
+                "url": f"https://example.com/mem-{idx}",
+                "summary": "agent memory context reuse for async agents",
+                "tags": ["startup", "ai"],
+                "score": 80,
+            }
+            for idx in range(1, 6)
+        ]
+        snapshots = [
+            {"run_time": now, "items": memory_items[:3]},
+            {"run_time": prev, "items": memory_items[3:]},
+        ]
+
+        signals = run_opportunity_notify.build_repeated_signals(snapshots)
+        memory = next(signal for signal in signals if signal["topic"] == "Agent Memory")
+
+        self.assertEqual(memory["counts"]["7"], 3)
+        self.assertEqual(memory["counts"]["14"], 5)
+        self.assertEqual(memory["counts"]["30"], 5)
+        self.assertEqual(memory["compounding"], "Important")
+        self.assertEqual(memory["decision"], "Monitor")
+
+    def test_v3_action_prioritizes_repeated_trend_over_project(self):
+        signal = {
+            "topic": "Agent Memory",
+            "counts": {"7": 3, "14": 5, "30": 5},
+            "compounding": "Important",
+            "andrew_match": 95,
+        }
+
+        action, reason = run_opportunity_notify.choose_v3_action(None, None, [signal])
+
+        self.assertEqual(action, "验证趋势: Agent Memory")
+        self.assertIn("Important", reason)
 
     def test_ai_first_without_tc_evidence_is_watchlist(self):
         item = {
